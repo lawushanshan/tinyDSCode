@@ -1,0 +1,67 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2026-05-20T14:30:00Z",
+  "updateMode": "initial",
+  "projectName": "tinyDSCode (DeepSeek Code CLI)",
+  "description": "一个 Claude Code 风格的 AI 编码助手，基于 Python + Rich + Pydantic",
+  "modules": [
+    {
+      "name": "architecture",
+      "file": "modules/architecture.md",
+      "components": ["Supervisor", "Worker", "Harness", "Memory", "Tools"],
+      "lastModified": "2026-05-20T14:30:00Z"
+    },
+    {
+      "name": "cli",
+      "file": "modules/cli.md",
+      "components": ["CLI入口", "REPL模式", "命令解析"],
+      "lastModified": "2026-05-20T14:30:00Z"
+    },
+    {
+      "name": "task-management",
+      "file": "modules/task-management.md",
+      "components": ["Ticket系统", "状态机", "任务调度"],
+      "lastModified": "2026-05-20T14:30:00Z"
+    },
+    {
+      "name": "execution-engine",
+      "file": "modules/execution-engine.md",
+      "components": ["Ralph循环", "Worker执行", "工具调用"],
+      "lastModified": "2026-05-20T14:30:00Z"
+    },
+    {
+      "name": "tools",
+      "file": "modules/tools.md",
+      "components": ["文件操作", "Shell执行", "搜索功能"],
+      "lastModified": "2026-05-20T14:30:00Z"
+    },
+    {
+      "name": "memory",
+      "file": "modules/memory.md",
+      "components": ["记忆管理", "上下文压缩", "Token预算"],
+      "lastModified": "2026-05-20T14:30:00Z"
+    },
+    {
+      "name": "llm-service",
+      "file": "modules/llm-service.md",
+      "components": ["LLM调用", "OpenAI兼容", "工具调用"],
+      "lastModified": "2026-05-20T14:30:00Z"
+    },
+    {
+      "name": "persistence",
+      "file": "modules/persistence.md",
+      "components": ["状态持久化", "审计日志", "Ticket存储"],
+      "lastModified": "2026-05-20T14:30:00Z"
+    }
+  ],
+  "sourceStats": {
+    "totalFiles": 15,
+    "analyzedFiles": 15,
+    "languages": ["python"],
+    "mainDirectory": "src/deepseek_code"
+  },
+  "gitInfo": {
+    "baseBranch": "main",
+    "currentBranch": "main"
+  }
+}

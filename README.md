@@ -17,6 +17,9 @@ deepseek-code run "列出当前目录的文件"
 # 启动交互式 REPL（多轮对话）
 deepseek-code repl
 
+# 启动测试集
+deepseek-code eval 
+
 # 指定模型
 deepseek-code run "修复 auth.ts 的登录超时 bug" --model deepseek-v4-pro
 ```

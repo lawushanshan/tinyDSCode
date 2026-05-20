@@ -29,6 +29,26 @@ htmlcov/
 # Eval output
 .eval_reports/
 
+# Eval test generated files
+two_sum.py
+merge_sorted_arrays.py
+merge_sorted_arrays/
+kadane.py
+kadane_algorithm.py
+lru_cache.py
+reverse_vowels.py
+palindrome.py
+longest_substring.py
+group_anagrams.py
+gcd.py
+src/deepseek_code/is_prime.py
+src/deepseek_code/flatten.py
+src/deepseek_code/merge_sorted_arrays.py
+test_kadane.py
+tests/test_flatten.py
+tests/test_is_prime.py
+solution.py
+
 # Claude Code local settings
 .claude/
 
@@ -38,3 +58,5 @@ htmlcov/
 # OS
 Thumbs.db
 .DS_Store
+
+.eval_reports/

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional, Literal, Set
@@ -12,6 +13,8 @@ from .llm_service import LLMService
 from .memory import MemoryManager
 from .tools import create_default_registry
 from .persistence import StateManager
+
+MAX_SUPERVISOR_ITERATIONS = 50
 
 
 class SupervisorState(str, Enum):
@@ -46,6 +49,13 @@ class Ticket(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     log: list[str] = Field(default_factory=list)
+
+
+@dataclass
+class EvaluationAction:
+    action: str
+    reason: str = ""
+    new_tasks: list[dict] | None = None
 
 
 class Supervisor:
@@ -227,6 +237,65 @@ class Supervisor:
         except (json.JSONDecodeError, TypeError):
             return []
 
+    def _create_child_ticket(self, parent: Ticket, task_dict: dict[str, str]) -> Ticket:
+        child = self.create_ticket(task_dict["description"])
+        child.parent_ticket_id = parent.ticket_id
+        if "acceptance_criteria" in task_dict:
+            child.acceptance_criteria = task_dict["acceptance_criteria"]
+        return child
+
+    def _parse_evaluation(self, text: str) -> EvaluationAction:
+        cleaned = text.strip()
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start == -1 or end == -1:
+            return EvaluationAction(action="continue")
+        try:
+            data = json.loads(cleaned[start:end + 1])
+            action = data.get("action", "continue")
+            return EvaluationAction(
+                action=action,
+                reason=data.get("reason", ""),
+                new_tasks=data.get("new_tasks"),
+            )
+        except (json.JSONDecodeError, TypeError):
+            return EvaluationAction(action="continue")
+
+    def _evaluate_ticket(
+        self,
+        ticket: Ticket,
+        result: str,
+        pending_tickets: List[Ticket],
+        original_prompt: str,
+    ) -> EvaluationAction:
+        review_messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是一个任务调度助手。根据已完成的子任务结果，决定下一步行动。\n"
+                    "可选动作:\n"
+                    "- continue: 继续执行下一个子任务\n"
+                    "- re_plan: 重新规划剩余工作（说明原因）\n"
+                    "- skip_remaining: 当前结果已满足原始目标，跳过剩余任务\n"
+                    "- add_tasks: 需要追加新的子任务（附 JSON 数组）\n"
+                    '仅回复 JSON: {"action": "continue"} 或 {"action": "re_plan", "reason": "..."} '
+                    '或 {"action": "skip_remaining", "reason": "..."} '
+                    '或 {"action": "add_tasks", "new_tasks": [{"description": "..."}]}\n'
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"原始目标: {original_prompt}\n"
+                    f"已完成任务 [{ticket.ticket_id}]: {ticket.description}\n"
+                    f"结果: {result[:500]}\n"
+                    f"待执行任务: {[t.description for t in pending_tickets]}\n"
+                ),
+            },
+        ]
+        response = self.llm_service.chat(messages=review_messages)
+        return self._parse_evaluation(response.content or "")
+
     def handle_prompt(self, prompt: str, model: str = "deepseek-v4-flash") -> str:
         try:
             self._transition(SupervisorState.PLANNING)
@@ -234,24 +303,54 @@ class Supervisor:
 
             sub_tasks = self.plan_task(prompt, model)
             if len(sub_tasks) > 1:
-                child_tickets = []
-                for task in sub_tasks:
-                    child = self.create_ticket(task["description"])
-                    child.parent_ticket_id = parent_ticket.ticket_id
-                    if "acceptance_criteria" in task:
-                        child.acceptance_criteria = task["acceptance_criteria"]
-                    child_tickets.append(child)
+                child_tickets = [self._create_child_ticket(parent_ticket, t) for t in sub_tasks]
             else:
                 child_tickets = [parent_ticket]
 
+            pending = list(child_tickets)
             results = []
-            for ticket in child_tickets:
+            supervisor_iteration = 0
+
+            while pending and supervisor_iteration < MAX_SUPERVISOR_ITERATIONS:
+                supervisor_iteration += 1
+                ticket = pending.pop(0)
+
                 self._transition(SupervisorState.DISPATCHING)
                 self.start_ticket(ticket)
 
                 self._transition(SupervisorState.WAITING_WORKER)
+                if results:
+                    self.memory.clear_working()
+                    self.memory.append_system(
+                        f"之前任务的结果（供参考）：\n" + "\n".join(results[-3:])
+                    )
                 response = self.worker.execute_ticket(ticket, model=model, on_step=self._worker_on_step)
                 results.append(f"[{ticket.ticket_id}] {response}")
+
+                if pending:
+                    eval_action = self._evaluate_ticket(ticket, response, pending, prompt)
+
+                    if eval_action.action == "skip_remaining":
+                        parent_ticket.log.append(f"跳过剩余任务: {eval_action.reason}")
+                        pending.clear()
+
+                    elif eval_action.action == "add_tasks" and eval_action.new_tasks:
+                        for t in eval_action.new_tasks:
+                            new_ticket = self._create_child_ticket(parent_ticket, t)
+                            pending.append(new_ticket)
+                        parent_ticket.log.append(f"追加 {len(eval_action.new_tasks)} 个新任务")
+
+                    elif eval_action.action == "re_plan":
+                        parent_ticket.log.append(f"重新规划: {eval_action.reason}")
+                        pending.clear()
+                        new_plan = self.plan_task(eval_action.reason, model)
+                        if new_plan:
+                            for t in new_plan:
+                                new_ticket = self._create_child_ticket(parent_ticket, t)
+                                pending.append(new_ticket)
+
+            if supervisor_iteration >= MAX_SUPERVISOR_ITERATIONS:
+                parent_ticket.log.append(f"达到 Supervisor 最大循环次数 {MAX_SUPERVISOR_ITERATIONS}")
 
             self._transition(SupervisorState.REVIEWING)
             final_result = "\n\n".join(results) if results else "（无结果）"
