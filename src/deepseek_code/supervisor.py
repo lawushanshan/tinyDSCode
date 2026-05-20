@@ -42,7 +42,7 @@ class Ticket(BaseModel):
     description: str
     result: Optional[str] = None
     acceptance_criteria: Optional[str] = None
-    max_loop_iterations: int = 10
+    max_loop_iterations: int = 20
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     log: list[str] = Field(default_factory=list)
