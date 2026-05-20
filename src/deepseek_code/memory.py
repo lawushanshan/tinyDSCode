@@ -18,6 +18,9 @@ class MemoryManager:
     def append_tool_result(self, content: str) -> None:
         self.history.append({"role": "assistant", "content": content})
 
+    def append_system(self, content: str) -> None:
+        self.history.append({"role": "user", "content": content})
+
     def _build_system_prompt(self) -> str:
         return (
             "你是 DeepSeek Code AI 助手，一个 Claude Code 风格的编码助手。\n\n"

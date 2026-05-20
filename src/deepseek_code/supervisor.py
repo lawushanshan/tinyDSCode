@@ -6,7 +6,7 @@ from typing import List, Optional, Literal, Set
 from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.prompt import Prompt
-from .worker import Worker
+from .worker import Worker, StepDirective
 from .harness import Harness
 from .llm_service import LLMService
 from .memory import MemoryManager
@@ -67,6 +67,45 @@ class Supervisor:
         self.state: SupervisorState = SupervisorState.IDLE
         if load_state:
             self._load_state()
+
+    def _worker_on_step(self, step_type: str, **kwargs) -> StepDirective:
+        if step_type == "before_tool_call":
+            tc = kwargs.get("tool_call")
+            ticket = kwargs.get("ticket")
+            if tc and ticket:
+                args = tc.arguments
+                ticket.log.append(f"工具调用: {tc.name}({json.dumps(args, ensure_ascii=False)})")
+                ticket.updated_at = datetime.now(timezone.utc)
+                self._persist_tickets()
+            return StepDirective(approved=True)
+
+        if step_type == "after_tool_call":
+            tc = kwargs.get("tool_call")
+            ticket = kwargs.get("ticket")
+            result = kwargs.get("result", "")
+            is_error = "[ERROR]" in result or "命令执行失败" in result
+            status = "失败" if is_error else "成功"
+            if tc and ticket:
+                ticket.log.append(f"工具结果 [{status}]: {result[:120]}")
+                ticket.updated_at = datetime.now(timezone.utc)
+                self._persist_tickets()
+            return StepDirective()
+
+        if step_type == "progress_check":
+            ticket = kwargs.get("ticket")
+            iteration = kwargs.get("iteration", 0)
+            desc = ticket.description if ticket else "未知"
+            return StepDirective(
+                inject_message=(
+                    f"【进度检查】请评估你当前的工作进展。\n"
+                    f"原始任务: {desc}\n"
+                    f"当前是第 {iteration} 次循环。\n"
+                    f"如果你的操作偏离了原始任务，请立即回到正题。\n"
+                    f"如果任务已完成，请直接输出最终结果，不要再调用工具。"
+                )
+            )
+
+        return StepDirective()
 
     def _transition(self, new_state: SupervisorState) -> None:
         allowed = VALID_TRANSITIONS.get(self.state, set())
@@ -211,7 +250,7 @@ class Supervisor:
                 self.start_ticket(ticket)
 
                 self._transition(SupervisorState.WAITING_WORKER)
-                response = self.worker.execute_ticket(ticket, model=model)
+                response = self.worker.execute_ticket(ticket, model=model, on_step=self._worker_on_step)
                 results.append(f"[{ticket.ticket_id}] {response}")
 
             self._transition(SupervisorState.REVIEWING)

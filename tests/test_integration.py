@@ -69,7 +69,9 @@ def test_e2e_subtask_workflow(tmp_path: Path) -> None:
 def test_e2e_persistence_round_trip(tmp_path: Path) -> None:
     """状态持久化 + 恢复"""
     supervisor = Supervisor(state_root=str(tmp_path))
-    supervisor.worker.execute_ticket = lambda ticket, model: "持久化结果"
+    supervisor.worker.execute_ticket = lambda ticket, model, on_step=None: "持久化结果"
+    supervisor.llm_service = MagicMock()
+    supervisor.llm_service.chat.return_value = LLMResponse(content='[{"description": "持久化测试"}]')
     supervisor.handle_prompt("持久化测试", model="mock")
 
     supervisor2 = Supervisor(state_root=str(tmp_path))
@@ -87,7 +89,7 @@ def test_e2e_plan_fallback_to_single_ticket(tmp_path: Path) -> None:
     mock_service.chat.return_value = LLMResponse(content="无法解析", tool_calls=None)
     supervisor.llm_service = mock_service
     supervisor.worker.llm_service = mock_service
-    supervisor.worker.execute_ticket = lambda ticket, model: "降级结果"
+    supervisor.worker.execute_ticket = lambda ticket, model, on_step=None: "降级结果"
 
     result = supervisor.handle_prompt("简单任务", model="mock")
 

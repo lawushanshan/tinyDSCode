@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
-from typing import TYPE_CHECKING, Optional
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Callable, Optional
 
 from rich.console import Console
 from rich.panel import Panel
@@ -17,12 +18,21 @@ console = Console()
 
 MAX_CONSECUTIVE_NO_PROGRESS = 3
 MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS = 3
+PROGRESS_CHECK_INTERVAL = 5
 
 
 def _truncate(text: str, max_len: int = 200) -> str:
     if len(text) <= max_len:
         return text
     return text[:max_len - 3] + "..."
+
+
+@dataclass
+class StepDirective:
+    """Supervisor 通过回调返回给 Worker 的指令"""
+    approved: bool = True
+    inject_message: str | None = None
+    abort: bool = False
 
 
 def _tool_calls_signature(tool_calls) -> str:
@@ -45,7 +55,12 @@ class Worker:
         self.llm_service = llm_service
         self.memory = memory
 
-    def execute_ticket(self, ticket: "Ticket", model: str = "deepseek-v4-flash") -> str:
+    def execute_ticket(
+        self,
+        ticket: "Ticket",
+        model: str = "deepseek-v4-flash",
+        on_step: Callable[[str, ...], StepDirective] | None = None,
+    ) -> str:
         self.memory.load_ticket(ticket)
         console.print()
         console.rule(f"[bold green]Worker: 执行 {ticket.ticket_id}[/bold green]")
@@ -62,6 +77,17 @@ class Worker:
             iteration += 1
             console.print()
             console.print(f"[bold cyan]▸ 循环 {iteration}/{max_iterations}[/bold cyan]")
+
+            # 进度检查：每 N 次循环注入提醒
+            if on_step and iteration > 1 and iteration % PROGRESS_CHECK_INTERVAL == 0:
+                directive = on_step("progress_check", ticket=ticket, iteration=iteration)
+                if directive.abort:
+                    console.print("[yellow]⚠ Supervisor 中止任务[/yellow]")
+                    ticket.status = "failed"
+                    return "（任务被 Supervisor 中止）"
+                if directive.inject_message:
+                    self.memory.append_system(directive.inject_message)
+                    console.print("[bold blue]📋 进度检查[/bold blue]")
 
             messages = self.memory.build_messages()
             tools_schema = (
@@ -108,6 +134,21 @@ class Worker:
             for tc in response.tool_calls:
                 args_summary = ", ".join(f"{k}={_truncate(str(v), 80)}" for k, v in tc.arguments.items())
                 console.print(f"[yellow]⚡ 工具调用:[/yellow] {tc.name}({args_summary})")
+
+                # 请求 Supervisor 审批
+                if on_step:
+                    directive = on_step("before_tool_call", tool_call=tc, iteration=iteration)
+                    if directive.abort:
+                        console.print("[yellow]⚠ Supervisor 中止任务[/yellow]")
+                        ticket.status = "failed"
+                        return "（任务被 Supervisor 中止）"
+                    if not directive.approved:
+                        console.print(f"[red]⊘ 工具被拒绝:[/red] {tc.name}")
+                        self.memory.append_tool_result(f"（操作已被 Supervisor 拒绝）{tc.name}({args_summary})")
+                        if directive.inject_message:
+                            self.memory.append_system(directive.inject_message)
+                        break
+
                 result = self.harness.execute_tool_call(tc)
                 is_error = result.startswith("[命令执行失败") or result.startswith("[ERROR]")
                 if is_error:
@@ -115,6 +156,10 @@ class Worker:
                 else:
                     console.print(f"[green]✓ 工具结果:[/green] {_truncate(result, 150)}")
                 self.memory.append_tool_result(f"工具执行结果：{result}")
+
+                # 执行后汇报
+                if on_step:
+                    on_step("after_tool_call", tool_call=tc, result=result)
 
         console.print(f"[yellow]⚠ 达到最大循环次数 {max_iterations}，Ticket 未完成[/yellow]")
         return last_content or f"[警告] 达到最大循环次数 {max_iterations}，Ticket 未完成。"

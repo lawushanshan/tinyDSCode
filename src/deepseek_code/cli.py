@@ -31,6 +31,16 @@ def parse_args(args=None) -> argparse.Namespace:
 
     subparsers.add_parser("models", help="列出可用的模型预设")
 
+    eval_parser = subparsers.add_parser("eval", help="运行 L1 代码生成评估基准")
+    eval_parser.add_argument("--model", default=None, help="模型预设名称或原始模型字符串")
+    eval_parser.add_argument("--tasks-dir", default=None, help="自定义任务目录路径")
+    eval_parser.add_argument("--task-ids", nargs="*", default=None, help="指定 task_id 列表")
+    eval_parser.add_argument("--categories", nargs="*", default=None, help="按类别筛选")
+    eval_parser.add_argument("--difficulties", nargs="*", default=None, help="按难度筛选")
+    eval_parser.add_argument("--output-dir", default=None, help="报告输出目录")
+    eval_parser.add_argument("--timeout", type=int, default=30, help="测试执行超时秒数")
+    eval_parser.add_argument("--stop-on-error", action="store_true", help="首次失败即停")
+
     return parser.parse_args(args)
 
 
@@ -38,6 +48,22 @@ def main() -> None:
     args = parse_args()
     config = load_config(args.config)
     default_model = config.default or "deepseek-v4-flash"
+
+    if args.command == "eval":
+        from .eval.cli_handler import eval_run
+        model_arg = args.model or default_model
+        eval_run(
+            model=model_arg,
+            config=config,
+            tasks_dir=args.tasks_dir,
+            task_ids=args.task_ids,
+            categories=args.categories,
+            difficulties=args.difficulties,
+            output_dir=args.output_dir,
+            timeout=args.timeout,
+            continue_on_error=not args.stop_on_error,
+        )
+        return
 
     if args.command == "models":
         models = list_models(config)

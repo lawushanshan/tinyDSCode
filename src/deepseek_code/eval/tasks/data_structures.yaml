@@ -1,0 +1,59 @@
+- task_id: "ds_001"
+  prompt: |
+    class LRUCache:
+        def __init__(self, capacity: int):
+            """
+            Initialize the LRU cache with a positive capacity.
+            """
+            pass
+
+        def get(self, key: int) -> int:
+            """
+            Return the value of the key if it exists, otherwise return -1.
+            """
+            pass
+
+        def put(self, key: int, value: int) -> None:
+            """
+            Update the value of the key if it exists.
+            Otherwise, add the key-value pair.
+            If the number of keys exceeds capacity, evict the least recently used key.
+            """
+            pass
+  test_code: |
+    cache = LRUCache(2)
+    cache.put(1, 1)
+    cache.put(2, 2)
+    assert cache.get(1) == 1
+    cache.put(3, 3)
+    assert cache.get(2) == -1
+    cache.put(4, 4)
+    assert cache.get(1) == -1
+    assert cache.get(3) == 3
+    assert cache.get(4) == 4
+  entry_point: "LRUCache"
+  difficulty: "medium"
+  category: "data_structure"
+  description: "LRU Cache implementation"
+
+- task_id: "ds_002"
+  prompt: |
+    def flatten_nested_list(nested: list) -> list:
+        """
+        Flatten a nested list of arbitrary depth into a single-level list.
+
+        Examples:
+        >>> flatten_nested_list([1, [2, [3, 4], 5], 6])
+        [1, 2, 3, 4, 5, 6]
+        """
+  test_code: |
+    assert flatten_nested_list([1, [2, [3, 4], 5], 6]) == [1, 2, 3, 4, 5, 6]
+    assert flatten_nested_list([]) == []
+    assert flatten_nested_list([[]]) == []
+    assert flatten_nested_list([1, 2, 3]) == [1, 2, 3]
+    assert flatten_nested_list([[[1]]]) == [1]
+    assert flatten_nested_list([1, [2, [3, [4, [5]]]]]) == [1, 2, 3, 4, 5]
+  entry_point: "flatten_nested_list"
+  difficulty: "easy"
+  category: "data_structure"
+  description: "Flatten a nested list"

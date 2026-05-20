@@ -26,6 +26,12 @@ htmlcov/
 # Runtime state
 .harness_state/
 
+# Eval output
+.eval_reports/
+
+# Claude Code local settings
+.claude/
+
 # Config with secrets (use .deepseek-code.example.json as template)
 .deepseek-code.json
 

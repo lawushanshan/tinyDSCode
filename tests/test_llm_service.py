@@ -1,8 +1,10 @@
+from unittest.mock import patch
 from deepseek_code.llm_service import LLMService, LLMResponse, ToolCall
 
 
 def test_mock_response_without_api_key() -> None:
-    service = LLMService(model="deepseek-v4-flash")
+    with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "", "OPENAI_API_KEY": ""}, clear=False):
+        service = LLMService(model="deepseek-v4-flash")
     response = service.chat(messages=[{"role": "user", "content": "hello"}])
     assert response.content is not None
     assert "模拟响应" in response.content

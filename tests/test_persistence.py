@@ -1,5 +1,7 @@
 from pathlib import Path
+from unittest.mock import MagicMock
 
+from deepseek_code.llm_service import LLMResponse
 from deepseek_code.persistence import StateManager
 from deepseek_code.supervisor import Supervisor
 
@@ -17,7 +19,9 @@ def test_state_manager_save_load(tmp_path: Path) -> None:
 
 def test_supervisor_persistence(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
-    supervisor.worker.execute_ticket = lambda ticket, model: "结果"
+    supervisor.worker.execute_ticket = lambda ticket, model, on_step=None: "结果"
+    supervisor.llm_service = MagicMock()
+    supervisor.llm_service.chat.return_value = LLMResponse(content='[{"description": "持久化测试"}]')
     supervisor.handle_prompt("持久化测试", model="deepseek-v4-flash")
     assert (tmp_path / ".harness_state" / "tickets.json").exists()
     assert (tmp_path / ".harness_state" / "audit_log.json").exists()

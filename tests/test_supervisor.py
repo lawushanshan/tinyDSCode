@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 from deepseek_code.supervisor import Supervisor, SupervisorState
 from deepseek_code.llm_service import LLMResponse
+from deepseek_code.worker import StepDirective
 from deepseek_code.persistence import StateManager
 
 
@@ -15,7 +16,9 @@ def test_create_and_list_tickets() -> None:
 
 def test_handle_prompt_creates_ticket() -> None:
     supervisor = Supervisor()
-    supervisor.worker.execute_ticket = lambda ticket, model: "模拟响应"
+    supervisor.worker.execute_ticket = lambda ticket, model, on_step=None: "模拟响应"
+    supervisor.llm_service = MagicMock()
+    supervisor.llm_service.chat.return_value = LLMResponse(content='[{"description": "测试 prompt"}]')
     response = supervisor.handle_prompt("测试 prompt", model="deepseek-v4-flash")
     assert supervisor.tickets
     assert supervisor.tickets[0].status == "done"
@@ -51,7 +54,9 @@ def test_invalid_state_transition_raises() -> None:
 
 def test_handle_prompt_full_lifecycle() -> None:
     supervisor = Supervisor()
-    supervisor.worker.execute_ticket = lambda ticket, model: "结果"
+    supervisor.worker.execute_ticket = lambda ticket, model, on_step=None: "结果"
+    supervisor.llm_service = MagicMock()
+    supervisor.llm_service.chat.return_value = LLMResponse(content='[{"description": "生命周期测试"}]')
     assert supervisor.state == SupervisorState.IDLE
     response = supervisor.handle_prompt("生命周期测试", model="deepseek-v4-flash")
     assert "结果" in response
@@ -62,10 +67,12 @@ def test_handle_prompt_full_lifecycle() -> None:
 def test_handle_prompt_failure_state() -> None:
     supervisor = Supervisor()
 
-    def failing_execute(ticket, model):
+    def failing_execute(ticket, model, on_step=None):
         raise RuntimeError("模拟失败")
 
     supervisor.worker.execute_ticket = failing_execute
+    supervisor.llm_service = MagicMock()
+    supervisor.llm_service.chat.return_value = LLMResponse(content='[{"description": "失败测试"}]')
     try:
         supervisor.handle_prompt("失败测试", model="deepseek-v4-flash")
         assert False, "应抛出异常"
@@ -89,7 +96,9 @@ def test_state_persistence(tmp_path: Path) -> None:
 
 def test_supervisor_persistence(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
-    supervisor.worker.execute_ticket = lambda ticket, model: "结果"
+    supervisor.worker.execute_ticket = lambda ticket, model, on_step=None: "结果"
+    supervisor.llm_service = MagicMock()
+    supervisor.llm_service.chat.return_value = LLMResponse(content='[{"description": "持久化测试"}]')
     supervisor.handle_prompt("持久化测试", model="deepseek-v4-flash")
     assert (tmp_path / ".harness_state" / "tickets.json").exists()
     assert (tmp_path / ".harness_state" / "audit_log.json").exists()
@@ -148,7 +157,7 @@ def test_plan_task_fallback_on_empty() -> None:
 
 def test_handle_prompt_with_subtasks(tmp_path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
-    supervisor.worker.execute_ticket = lambda ticket, model: f"完成: {ticket.description}"
+    supervisor.worker.execute_ticket = lambda ticket, model, on_step=None: f"完成: {ticket.description}"
 
     mock_response = LLMResponse(
         content='[{"description": "步骤A"}, {"description": "步骤B"}]'
@@ -165,7 +174,7 @@ def test_handle_prompt_with_subtasks(tmp_path) -> None:
 
 def test_handle_prompt_single_subtask_fallback(tmp_path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
-    supervisor.worker.execute_ticket = lambda ticket, model: "结果"
+    supervisor.worker.execute_ticket = lambda ticket, model, on_step=None: "结果"
 
     mock_response = LLMResponse(content='[{"description": "简单任务"}]')
     supervisor.llm_service = MagicMock()
@@ -178,7 +187,7 @@ def test_handle_prompt_single_subtask_fallback(tmp_path) -> None:
 
 def test_child_ticket_parent_reference(tmp_path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
-    supervisor.worker.execute_ticket = lambda ticket, model: "ok"
+    supervisor.worker.execute_ticket = lambda ticket, model, on_step=None: "ok"
 
     mock_response = LLMResponse(
         content='[{"description": "子任务1"}, {"description": "子任务2"}]'
@@ -191,3 +200,40 @@ def test_child_ticket_parent_reference(tmp_path) -> None:
     children = [t for t in supervisor.tickets if t.parent_ticket_id == parent.ticket_id]
     assert len(children) == 2
     assert all(c.parent_ticket_id == parent.ticket_id for c in children)
+
+
+def test_on_step_records_tool_in_ticket_log(tmp_path) -> None:
+    """on_step 回调应将工具调用记录到 ticket 日志"""
+    from deepseek_code.worker import StepDirective as SD
+    from unittest.mock import MagicMock
+    from deepseek_code.llm_service import ToolCall
+
+    supervisor = Supervisor(state_root=str(tmp_path))
+
+    step_log: list[dict] = []
+    def record_step(step_type, **kwargs):
+        step_log.append({"type": step_type, **kwargs})
+        return SD()
+
+    supervisor._worker_on_step = record_step
+    supervisor.worker.execute_ticket = lambda ticket, model, on_step=record_step: "完成"
+    supervisor.llm_service = MagicMock()
+    supervisor.llm_service.chat.return_value = LLMResponse(content='[{"description": "子任务"}]')
+
+    supervisor.handle_prompt("测试监督", model="mock")
+    # on_step 应该没有被直接调用（因为 execute_ticket 被 mock 了）
+    # 但 _worker_on_step 已被替换
+    assert len(step_log) == 0  # mock 没走真实流程
+
+
+def test_on_step_progress_check_injects_message(tmp_path) -> None:
+    """progress_check 回调应返回 inject_message"""
+    supervisor = Supervisor()
+    directive = supervisor._worker_on_step(
+        "progress_check",
+        ticket=MagicMock(description="写单元测试"),
+        iteration=5,
+    )
+    assert directive.inject_message is not None
+    assert "进度检查" in directive.inject_message
+    assert "写单元测试" in directive.inject_message

@@ -4,7 +4,7 @@ from deepseek_code.harness import Harness
 from deepseek_code.llm_service import LLMResponse, ToolCall, LLMService
 from deepseek_code.memory import MemoryManager
 from deepseek_code.supervisor import Ticket
-from deepseek_code.worker import Worker
+from deepseek_code.worker import Worker, StepDirective
 
 
 def _make_worker(tmp_path=None) -> Worker:
@@ -157,3 +157,96 @@ def test_different_tool_calls_reset_counter(tmp_path) -> None:
     assert result == "完成"
     assert ticket.status == "done"
     assert worker.llm_service.chat.call_count == 4
+
+
+def test_on_step_reject_tool_call(tmp_path) -> None:
+    """Supervisor 拒绝工具调用时，Worker 跳过并继续循环"""
+    worker = _make_worker(tmp_path)
+    call_count = {"n": 0}
+
+    def reject_first_tool(step_type, **kwargs):
+        call_count["n"] += 1
+        if step_type == "before_tool_call" and call_count["n"] == 1:
+            return StepDirective(approved=False, inject_message="不要执行这个操作，请换一种方式。")
+        return StepDirective()
+
+    (tmp_path / "test.txt").write_text("ok", encoding="utf-8")
+    tc_rejected = ToolCall(id="c1", name="run_shell", arguments={"command": "rm -rf /"})
+    tc_alternative = ToolCall(id="c2", name="read_file", arguments={"path": str(tmp_path / "test.txt")})
+    response_with_rejected = LLMResponse(content="尝试危险操作", tool_calls=[tc_rejected])
+    response_with_ok = LLMResponse(content="换读文件", tool_calls=[tc_alternative])
+    response_final = LLMResponse(content="已完成", tool_calls=None)
+
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.side_effect = [response_with_rejected, response_with_ok, response_final]
+
+    ticket = Ticket(ticket_id="T-006", description="拒绝测试", max_loop_iterations=5)
+    result = worker.execute_ticket(ticket, on_step=reject_first_tool)
+    assert result == "已完成"
+    assert ticket.status == "done"
+
+
+def test_on_step_abort(tmp_path) -> None:
+    """Supervisor 中止任务时，Worker 立即停止"""
+    worker = _make_worker(tmp_path)
+
+    def abort_on_first(step_type, **kwargs):
+        if step_type == "before_tool_call":
+            return StepDirective(abort=True)
+        return StepDirective()
+
+    tc = ToolCall(id="c1", name="read_file", arguments={"path": str(tmp_path / "x.txt")})
+    response = LLMResponse(content="读文件", tool_calls=[tc])
+
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.return_value = response
+
+    ticket = Ticket(ticket_id="T-007", description="中止测试", max_loop_iterations=5)
+    result = worker.execute_ticket(ticket, on_step=abort_on_first)
+    assert "中止" in result
+    assert ticket.status == "failed"
+
+
+def test_on_step_progress_check(tmp_path) -> None:
+    """进度检查在指定间隔注入消息"""
+    worker = _make_worker(tmp_path)
+    injected: list[str] = []
+
+    def track_progress(step_type, **kwargs):
+        if step_type == "progress_check":
+            injected.append(kwargs.get("iteration", 0))
+            return StepDirective(inject_message=f"第{kwargs.get('iteration')}次检查")
+        return StepDirective()
+
+    tc1 = ToolCall(id="c1", name="list_dir", arguments={"path": str(tmp_path)})
+    tc2 = ToolCall(id="c2", name="read_file", arguments={"path": str(tmp_path / "test.txt")})
+    responses = [
+        LLMResponse(content="继续", tool_calls=[tc1]),
+        LLMResponse(content="继续", tool_calls=[tc2]),
+        LLMResponse(content="继续", tool_calls=[tc1]),
+        LLMResponse(content="继续", tool_calls=[tc2]),
+        LLMResponse(content="继续", tool_calls=[tc1]),
+        LLMResponse(content="完成", tool_calls=None),
+    ]
+
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.side_effect = responses
+
+    ticket = Ticket(ticket_id="T-008", description="进度检查测试", max_loop_iterations=10)
+    result = worker.execute_ticket(ticket, on_step=track_progress)
+    assert result == "完成"
+    # PROGRESS_CHECK_INTERVAL=5, 第 5 次循环会触发进度检查
+    assert 5 in injected
+
+
+def test_no_on_step_backward_compatible(tmp_path) -> None:
+    """不传 on_step 时行为与之前完全一致"""
+    worker = _make_worker(tmp_path)
+    mock_response = LLMResponse(content="直接完成", tool_calls=None)
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.return_value = mock_response
+
+    ticket = Ticket(ticket_id="T-009", description="兼容测试")
+    result = worker.execute_ticket(ticket)
+    assert result == "直接完成"
+    assert ticket.status == "done"

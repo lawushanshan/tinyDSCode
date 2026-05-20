@@ -162,6 +162,19 @@ def test_search_files_not_found(tmp_path: Path) -> None:
     assert "未找到" in result
 
 
+def test_search_files_root_directory_rejected() -> None:
+    root = Path("/").resolve()
+    result = Tools.search_files("**/*.py", str(root))
+    assert "不允许搜索根目录" in result
+
+
+def test_search_files_result_truncation(tmp_path: Path) -> None:
+    for i in range(510):
+        (tmp_path / f"file_{i}.py").write_text("x", encoding="utf-8")
+    result = Tools.search_files("*.py", str(tmp_path))
+    assert "截断" in result
+
+
 # --- search_content (grep) 测试 ---
 
 
@@ -205,6 +218,12 @@ def test_search_content_no_match(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("hello world\n", encoding="utf-8")
     result = Tools.search_content("xyz_not_found", str(tmp_path))
     assert "未找到" in result
+
+
+def test_search_content_root_directory_rejected() -> None:
+    root = Path("/").resolve()
+    result = Tools.search_content("import", str(root))
+    assert "不允许搜索根目录" in result
 
 
 def test_search_content_regex(tmp_path: Path) -> None:

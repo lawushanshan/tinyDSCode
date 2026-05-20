@@ -148,9 +148,11 @@ class Tools:
         path: str = ".",
         exclude_patterns: list[str] | None = None,
     ) -> str:
-        root = Path(path)
+        root = Path(path).resolve()
         if not root.exists():
             return f"路径不存在: {path}"
+        if len(root.parents) == 0 or str(root) == root.root:
+            return f"不允许搜索根目录: {path}，请指定具体的项目目录"
         excludes = set(exclude_patterns or []) | Tools._DEFAULT_EXCLUDES
         matched: list[str] = []
         for p in sorted(root.glob(pattern)):
@@ -162,6 +164,9 @@ class Tools:
                     break
             if not skip and p.is_file():
                 matched.append(str(rel))
+            if len(matched) >= 500:
+                matched.append("...（结果过多，已截断，请缩小搜索范围）")
+                break
         if not matched:
             return f"未找到匹配 '{pattern}' 的文件"
         return "\n".join(matched)
@@ -178,9 +183,11 @@ class Tools:
         exclude: str | None = None,
         context_lines: int = 0,
     ) -> str:
-        root = Path(path)
+        root = Path(path).resolve()
         if not root.exists():
             return f"路径不存在: {path}"
+        if len(root.parents) == 0 or str(root) == root.root:
+            return f"不允许搜索根目录: {path}，请指定具体的项目目录"
         try:
             regex = re.compile(pattern, re.IGNORECASE)
         except re.error as e:

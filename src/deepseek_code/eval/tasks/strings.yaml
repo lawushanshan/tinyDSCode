@@ -1,0 +1,96 @@
+- task_id: "string_001"
+  prompt: |
+    def reverse_vowels(s: str) -> str:
+        """
+        Reverse only the vowels (a, e, i, o, u, A, E, I, O, U) in the given string.
+        Non-vowel characters remain in their original positions.
+
+        Examples:
+        >>> reverse_vowels("hello")
+        'holle'
+        >>> reverse_vowels("leetcode")
+        'leotcede'
+        """
+  test_code: |
+    assert reverse_vowels("hello") == "holle"
+    assert reverse_vowels("leetcode") == "leotcede"
+    assert reverse_vowels("aeiou") == "uoiea"
+    assert reverse_vowels("AEIOU") == "UOIEA"
+    assert reverse_vowels("xyz") == "xyz"
+    assert reverse_vowels("") == ""
+    assert reverse_vowels("a") == "a"
+  entry_point: "reverse_vowels"
+  difficulty: "easy"
+  category: "string"
+  description: "Reverse vowels in a string"
+
+- task_id: "string_002"
+  prompt: |
+    def is_palindrome(s: str) -> bool:
+        """
+        Check if the given string is a palindrome, considering only alphanumeric
+        characters and ignoring case.
+
+        Examples:
+        >>> is_palindrome("A man, a plan, a canal: Panama")
+        True
+        >>> is_palindrome("race a car")
+        False
+        """
+  test_code: |
+    assert is_palindrome("A man, a plan, a canal: Panama") == True
+    assert is_palindrome("race a car") == False
+    assert is_palindrome("") == True
+    assert is_palindrome("a") == True
+    assert is_palindrome("ab") == False
+    assert is_palindrome("Was it a car or a cat I saw?") == True
+  entry_point: "is_palindrome"
+  difficulty: "easy"
+  category: "string"
+  description: "Valid palindrome ignoring case and non-alphanumeric"
+
+- task_id: "string_003"
+  prompt: |
+    def longest_substring_without_repeats(s: str) -> int:
+        """
+        Find the length of the longest substring without repeating characters.
+
+        Examples:
+        >>> longest_substring_without_repeats("abcabcbb")
+        3
+        >>> longest_substring_without_repeats("bbbbb")
+        1
+        """
+  test_code: |
+    assert longest_substring_without_repeats("abcabcbb") == 3
+    assert longest_substring_without_repeats("bbbbb") == 1
+    assert longest_substring_without_repeats("pwwkew") == 3
+    assert longest_substring_without_repeats("") == 0
+    assert longest_substring_without_repeats(" ") == 1
+    assert longest_substring_without_repeats("au") == 2
+  entry_point: "longest_substring_without_repeats"
+  difficulty: "medium"
+  category: "string"
+  description: "Longest substring without repeating characters"
+
+- task_id: "string_004"
+  prompt: |
+    def group_anagrams(strs: list[str]) -> list[list[str]]:
+        """
+        Group anagrams together from a list of strings.
+
+        Examples:
+        >>> sorted(group_anagrams(["eat","tea","tan","ate","nat","bat"]), key=lambda x: sorted(x))
+        [['bat'], ['eat', 'tea', 'ate'], ['tan', 'nat']]
+        """
+  test_code: |
+    result = group_anagrams(["eat", "tea", "tan", "ate", "nat", "bat"])
+    for group in result:
+        for word in group[1:]:
+            assert sorted(word) == sorted(group[0])
+    flat = sorted([w for g in result for w in g])
+    assert flat == sorted(["eat", "tea", "tan", "ate", "nat", "bat"])
+  entry_point: "group_anagrams"
+  difficulty: "medium"
+  category: "string"
+  description: "Group anagrams together"
