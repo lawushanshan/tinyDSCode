@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Runtime state
+.harness_state/
+
+# Config with secrets (use .deepseek-code.example.json as template)
+.deepseek-code.json
+
+# OS
+Thumbs.db
+.DS_Store
