@@ -42,7 +42,7 @@ class Ticket(BaseModel):
     description: str
     result: Optional[str] = None
     acceptance_criteria: Optional[str] = None
-    max_loop_iterations: int = 20
+    max_loop_iterations: int = 10
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     log: list[str] = Field(default_factory=list)
@@ -145,11 +145,17 @@ class Supervisor:
                 if not desc:
                     self.console.print("请提供任务描述，例如: :new 修复 auth.ts")
                     continue
-                response = self.handle_prompt(desc, model=model)
-                self.console.print(response)
+                try:
+                    response = self.handle_prompt(desc, model=model)
+                    self.console.print(response)
+                except Exception as e:
+                    self.console.print(f"[red]任务执行出错: {e}[/red]")
                 continue
-            response = self.handle_prompt(user_input, model=model)
-            self.console.print(response)
+            try:
+                response = self.handle_prompt(user_input, model=model)
+                self.console.print(response)
+            except Exception as e:
+                self.console.print(f"[red]任务执行出错: {e}[/red]")
 
     def plan_task(self, prompt: str, model: str) -> list[dict[str, str]]:
         planning_messages = [
@@ -222,11 +228,11 @@ class Supervisor:
                 pass
             raise
         finally:
-            if self.state in (SupervisorState.COMPLETE, SupervisorState.FAILED):
+            if self.state != SupervisorState.IDLE:
                 try:
                     self._transition(SupervisorState.IDLE)
                 except ValueError:
-                    pass
+                    self.state = SupervisorState.IDLE
 
     def _load_state(self) -> None:
         raw_tickets = self.state_manager.load_tickets()

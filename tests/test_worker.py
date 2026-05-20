@@ -117,3 +117,43 @@ def test_worker_retries_after_shell_error(tmp_path) -> None:
     assert worker.llm_service.chat.call_count == 3
     assert result == "已获取进程列表"
     assert ticket.status == "done"
+
+
+def test_identical_tool_calls_terminate(tmp_path) -> None:
+    """连续相同工具调用应被检测并终止循环"""
+    worker = _make_worker(tmp_path)
+    same_tc = ToolCall(id="call_1", name="list_dir", arguments={"path": str(tmp_path)})
+    always_same = LLMResponse(content=None, tool_calls=[same_tc])
+
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.return_value = always_same
+
+    ticket = Ticket(ticket_id="T-004", description="重复调用测试", max_loop_iterations=10)
+    result = worker.execute_ticket(ticket)
+    assert "重复" in result or "终止" in result
+    # 应在第 4 次循环终止（连续 3 次相同后触发）
+    assert worker.llm_service.chat.call_count <= 4
+
+
+def test_different_tool_calls_reset_counter(tmp_path) -> None:
+    """不同的工具调用应重置重复计数器，不误终止"""
+    worker = _make_worker(tmp_path)
+
+    tc1 = ToolCall(id="c1", name="list_dir", arguments={"path": str(tmp_path)})
+    tc2 = ToolCall(id="c2", name="read_file", arguments={"path": str(tmp_path / "test.txt")})
+    tc3 = ToolCall(id="c3", name="list_dir", arguments={"path": str(tmp_path)})
+    response_final = LLMResponse(content="完成", tool_calls=None)
+
+    r1 = LLMResponse(content=None, tool_calls=[tc1])
+    r2 = LLMResponse(content=None, tool_calls=[tc2])
+    r3 = LLMResponse(content=None, tool_calls=[tc3])
+    r4 = LLMResponse(content="完成", tool_calls=None)
+
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.side_effect = [r1, r2, r3, response_final]
+
+    ticket = Ticket(ticket_id="T-005", description="混合调用测试", max_loop_iterations=10)
+    result = worker.execute_ticket(ticket)
+    assert result == "完成"
+    assert ticket.status == "done"
+    assert worker.llm_service.chat.call_count == 4

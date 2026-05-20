@@ -48,7 +48,7 @@ class Harness:
         })
         try:
             result = self.perform_action(action=tool_name, **args)
-            result_text = str(result) if result else "（无返回值）"
+            result_text = str(result) if result is not None else "（无返回值）"
         except Exception as exc:
             result_text = f"[ERROR] {type(exc).__name__}: {exc}"
             self.audit_log.append({
@@ -74,6 +74,13 @@ class Harness:
         command: str | None = None,
         cwd: str | None = None,
         patch_text: str | None = None,
+        pattern: str | None = None,
+        include: str | None = None,
+        exclude: str | None = None,
+        exclude_patterns: str | None = None,
+        context_lines: int = 0,
+        query: str | None = None,
+        count: int = 5,
     ) -> str | None:
         if action == "read_file":
             if path is None:
@@ -81,7 +88,10 @@ class Harness:
             if not self.request_permission("file", detail=f"读取 {path}"):
                 raise PermissionError("已拒绝文件读取权限")
             from .tools import Tools
-            return Tools.read_file(path)
+            content = Tools.read_file(path)
+            if not content:
+                return f"（文件为空）{path}"
+            return content
 
         if action == "write_file":
             if path is None or content is None:
@@ -99,6 +109,8 @@ class Harness:
                 raise PermissionError("已拒绝目录读取权限")
             from .tools import Tools
             entries = Tools.list_dir(path)
+            if not entries:
+                return f"目录为空: {path}"
             return "\n".join(entries)
 
         if action == "run_shell":
@@ -117,6 +129,30 @@ class Harness:
             from .tools import Tools
             Tools.apply_patch(path, patch_text)
             return f"已应用补丁到 {path}"
+
+        if action == "search_files":
+            if pattern is None:
+                raise ValueError("search_files 需要 pattern")
+            if not self.request_permission("file", detail=f"搜索文件 {pattern}"):
+                raise PermissionError("已拒绝文件搜索权限")
+            from .tools import Tools
+            return Tools.search_files(pattern, path or ".", exclude_patterns.split(",") if exclude_patterns else None)
+
+        if action == "search_content":
+            if pattern is None:
+                raise ValueError("search_content 需要 pattern")
+            if not self.request_permission("file", detail=f"搜索内容 '{pattern}'"):
+                raise PermissionError("已拒绝内容搜索权限")
+            from .tools import Tools
+            return Tools.search_content(pattern, path or ".", include, exclude, context_lines)
+
+        if action == "web_search":
+            if query is None:
+                raise ValueError("web_search 需要 query")
+            if not self.request_permission("file", detail=f"搜索 '{query}'"):
+                raise PermissionError("已拒绝联网搜索权限")
+            from .web_search import web_search
+            return web_search(query, count)
 
         raise ValueError(f"未知操作: {action}")
 

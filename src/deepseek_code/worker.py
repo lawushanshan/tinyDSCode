@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 from typing import TYPE_CHECKING, Optional
 
 from rich.console import Console
@@ -15,12 +16,22 @@ if TYPE_CHECKING:
 console = Console()
 
 MAX_CONSECUTIVE_NO_PROGRESS = 3
+MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS = 3
 
 
 def _truncate(text: str, max_len: int = 200) -> str:
     if len(text) <= max_len:
         return text
     return text[:max_len - 3] + "..."
+
+
+def _tool_calls_signature(tool_calls) -> str:
+    """将 tool_calls 列表序列化为可比较的签名字符串"""
+    parts = []
+    for tc in tool_calls:
+        args_json = json.dumps(tc.arguments, sort_keys=True, ensure_ascii=False)
+        parts.append(f"{tc.name}:{args_json}")
+    return "|".join(parts)
 
 
 class Worker:
@@ -43,7 +54,9 @@ class Worker:
         max_iterations = getattr(ticket, "max_loop_iterations", 10)
         iteration = 0
         consecutive_no_progress = 0
+        consecutive_identical_calls = 0
         last_content: Optional[str] = None
+        last_tool_signature: Optional[str] = None
 
         while iteration < max_iterations:
             iteration += 1
@@ -79,6 +92,18 @@ class Worker:
 
             consecutive_no_progress = 0
             last_content = response.content
+
+            current_signature = _tool_calls_signature(response.tool_calls)
+            if current_signature == last_tool_signature:
+                consecutive_identical_calls += 1
+                if consecutive_identical_calls >= MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS:
+                    console.print(
+                        f"[yellow]⚠ 连续 {MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS} 次相同工具调用，终止循环[/yellow]"
+                    )
+                    return last_content or "（检测到重复工具调用，循环已终止）"
+            else:
+                consecutive_identical_calls = 0
+            last_tool_signature = current_signature
 
             for tc in response.tool_calls:
                 args_summary = ", ".join(f"{k}={_truncate(str(v), 80)}" for k, v in tc.arguments.items())

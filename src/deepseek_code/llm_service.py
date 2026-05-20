@@ -69,13 +69,17 @@ class LLMService:
         message = response.choices[0].message
         tool_calls = None
         if message.tool_calls:
-            tool_calls = [
-                ToolCall(
-                    id=tc.id,
-                    name=tc.function.name,
-                    arguments=json.loads(tc.function.arguments),
-                )
-                for tc in message.tool_calls
-            ]
+            parsed: list[ToolCall] = []
+            for tc in message.tool_calls:
+                try:
+                    args = json.loads(tc.function.arguments)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                parsed.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args))
+            tool_calls = parsed if parsed else None
 
-        return LLMResponse(content=message.content, tool_calls=tool_calls)
+        content = message.content
+        if not tool_calls and not content:
+            content = "（LLM 返回的工具调用参数格式错误，已跳过）"
+
+        return LLMResponse(content=content, tool_calls=tool_calls)

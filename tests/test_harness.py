@@ -64,3 +64,59 @@ def test_execute_tool_call_file_not_found_returns_error(tmp_path: Path) -> None:
     tc = ToolCall(id="call_fnf", name="read_file", arguments={"path": "/nonexistent/path/file.txt"})
     result = harness.execute_tool_call(tc)
     assert "ERROR" in result or "不存在" in result
+
+
+def test_execute_tool_call_search_files(tmp_path: Path) -> None:
+    """通过 harness 执行 search_files 工具"""
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry)
+    (tmp_path / "hello.py").write_text("x", encoding="utf-8")
+    (tmp_path / "world.txt").write_text("y", encoding="utf-8")
+    tc = ToolCall(id="call_glob", name="search_files", arguments={"pattern": "**/*.py", "path": str(tmp_path)})
+    result = harness.execute_tool_call(tc)
+    assert "hello.py" in result
+    assert "world.txt" not in result
+
+
+def test_execute_tool_call_search_content(tmp_path: Path) -> None:
+    """通过 harness 执行 search_content 工具"""
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry)
+    (tmp_path / "app.py").write_text("import os\nimport sys\n", encoding="utf-8")
+    tc = ToolCall(id="call_grep", name="search_content", arguments={"pattern": "import", "path": str(tmp_path)})
+    result = harness.execute_tool_call(tc)
+    assert "app.py" in result
+    assert "import" in result
+
+
+def test_execute_tool_call_web_search(tmp_path: Path) -> None:
+    """通过 harness 执行 web_search 工具"""
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry)
+    tc = ToolCall(id="call_ws", name="web_search", arguments={"query": "Python"})
+    result = harness.execute_tool_call(tc)
+    # 实际调用百度，只要不崩溃就行
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_list_dir_empty_directory(tmp_path: Path) -> None:
+    """空目录返回明确提示，而非空字符串"""
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry)
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    tc = ToolCall(id="call_empty", name="list_dir", arguments={"path": str(empty_dir)})
+    result = harness.execute_tool_call(tc)
+    assert "目录为空" in result
+
+
+def test_read_file_empty_file(tmp_path: Path) -> None:
+    """空文件返回明确提示，而非空字符串"""
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry)
+    empty_file = tmp_path / "empty.txt"
+    empty_file.write_text("", encoding="utf-8")
+    tc = ToolCall(id="call_ef", name="read_file", arguments={"path": str(empty_file)})
+    result = harness.execute_tool_call(tc)
+    assert "文件为空" in result

@@ -96,6 +96,13 @@ def test_run_shell_success() -> None:
     assert "hello" in result
 
 
+def test_run_shell_success_no_output(tmp_path: Path) -> None:
+    """命令成功但无输出时返回成功提示，而非空字符串"""
+    test_dir = str(tmp_path / "test_dir")
+    result = Tools.run_shell(f'mkdir "{test_dir}"')
+    assert "命令执行成功" in result
+
+
 def test_create_default_registry() -> None:
     registry = create_default_registry()
     assert registry.get("read_file") is not None
@@ -103,5 +110,105 @@ def test_create_default_registry() -> None:
     assert registry.get("list_dir") is not None
     assert registry.get("run_shell") is not None
     assert registry.get("apply_patch") is not None
+    assert registry.get("search_files") is not None
+    assert registry.get("search_content") is not None
+    assert registry.get("web_search") is not None
     schema = registry.to_openai_schema()
-    assert len(schema) == 5
+    assert len(schema) == 8
+
+
+# --- search_files (glob) 测试 ---
+
+
+def test_search_files_pattern(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("a", encoding="utf-8")
+    (tmp_path / "b.py").write_text("b", encoding="utf-8")
+    (tmp_path / "c.txt").write_text("c", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "d.py").write_text("d", encoding="utf-8")
+
+    result = Tools.search_files("**/*.py", str(tmp_path))
+    assert "a.py" in result
+    assert "b.py" in result
+    assert "c.txt" not in result
+    lines = result.strip().split("\n")
+    assert len(lines) == 3
+
+
+def test_search_files_exclude(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("a", encoding="utf-8")
+    node_modules = tmp_path / "node_modules"
+    node_modules.mkdir()
+    (node_modules / "b.py").write_text("b", encoding="utf-8")
+
+    result = Tools.search_files("**/*.py", str(tmp_path), exclude_patterns=["node_modules"])
+    assert "a.py" in result
+    assert "b.py" not in result
+
+
+def test_search_files_default_excludes_git(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("a", encoding="utf-8")
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+    (git_dir / "b.py").write_text("b", encoding="utf-8")
+
+    result = Tools.search_files("**/*.py", str(tmp_path))
+    assert "a.py" in result
+    assert "b.py" not in result
+
+
+def test_search_files_not_found(tmp_path: Path) -> None:
+    result = Tools.search_files("**/*.rs", str(tmp_path))
+    assert "未找到" in result
+
+
+# --- search_content (grep) 测试 ---
+
+
+def test_search_content_pattern(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def hello():\n    return 42\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("# no match here\npass\n", encoding="utf-8")
+
+    result = Tools.search_content("hello", str(tmp_path))
+    assert "a.py" in result
+    assert "hello" in result
+    assert "b.py" not in result
+
+
+def test_search_content_with_include(tmp_path: Path) -> None:
+    (tmp_path / "code.py").write_text("target_line\n", encoding="utf-8")
+    (tmp_path / "readme.txt").write_text("target_line\n", encoding="utf-8")
+
+    result = Tools.search_content("target_line", str(tmp_path), include="*.py")
+    assert "code.py" in result
+    assert "readme.txt" not in result
+
+
+def test_search_content_with_exclude(tmp_path: Path) -> None:
+    (tmp_path / "main.py").write_text("import os\n", encoding="utf-8")
+    (tmp_path / "test.log").write_text("import os\n", encoding="utf-8")
+
+    result = Tools.search_content("import", str(tmp_path), exclude="*.log")
+    assert "main.py" in result
+    assert "test.log" not in result
+
+
+def test_search_content_context_lines(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("line1\nline2 TARGET\nline3\nline4\n", encoding="utf-8")
+    result = Tools.search_content("TARGET", str(tmp_path), context_lines=1)
+    assert ">line2 TARGET" in result or "TARGET" in result
+    assert "line1" in result
+    assert "line3" in result
+
+
+def test_search_content_no_match(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("hello world\n", encoding="utf-8")
+    result = Tools.search_content("xyz_not_found", str(tmp_path))
+    assert "未找到" in result
+
+
+def test_search_content_regex(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("foo_bar = 123\nbaz_qux = 456\n", encoding="utf-8")
+    result = Tools.search_content(r"foo_\w+", str(tmp_path))
+    assert "foo_bar" in result
+    assert "baz_qux" not in result
