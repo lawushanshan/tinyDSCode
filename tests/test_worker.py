@@ -160,6 +160,31 @@ def test_identical_tool_calls_terminate(tmp_path) -> None:
     assert worker.last_steps[-1].done_reason == "repeated_tool_calls"
 
 
+def test_repeated_successful_tool_call_is_skipped(tmp_path) -> None:
+    """已经成功执行过的相同工具调用不应重复执行"""
+    worker = _make_worker(tmp_path)
+    target = tmp_path / "demo.py"
+    tc = ToolCall(id="call_write", name="write_file", arguments={"path": str(target), "content": "x = 1\n"})
+
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.side_effect = [
+        LLMResponse(content="写入文件", tool_calls=[tc]),
+        LLMResponse(content="再次写入同一文件", tool_calls=[tc]),
+        LLMResponse(content="已完成", tool_calls=None),
+    ]
+
+    ticket = Ticket(ticket_id="T-011", description="写文件", max_loop_iterations=5)
+
+    with patch.object(worker.harness, "execute_tool_call_structured", wraps=worker.harness.execute_tool_call_structured) as wrapped:
+        result = worker.execute_ticket(ticket)
+
+    assert result == "已完成"
+    assert wrapped.call_count == 1
+    assert target.read_text(encoding="utf-8") == "x = 1\n"
+    assert "重复工具调用已跳过" in worker.last_steps[1].injected_messages[0]
+    assert worker.last_steps[-1].done_reason == "assistant_final"
+
+
 def test_different_tool_calls_reset_counter(tmp_path) -> None:
     """不同的工具调用应重置重复计数器，不误终止"""
     worker = _make_worker(tmp_path)

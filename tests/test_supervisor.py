@@ -5,6 +5,7 @@ from deepseek_code.supervisor import Supervisor, SupervisorState
 from deepseek_code.llm_service import LLMResponse, ToolCall
 from deepseek_code.worker import StepDirective
 from deepseek_code.persistence import StateManager
+from deepseek_code.harness import ToolResult
 
 
 def test_create_and_list_tickets() -> None:
@@ -62,6 +63,76 @@ def test_format_trace_with_tool_result(tmp_path: Path) -> None:
     assert "结束原因: assistant_final" in trace
 
 
+def test_after_tool_call_collects_changed_files(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("修改文件")
+    tc = ToolCall(id="call_write", name="write_file", arguments={"path": "src/app.py", "content": "x"})
+    tool_result = ToolResult(
+        tool="write_file",
+        ok=True,
+        text="已写入 src/app.py",
+        changed_files=["src/app.py"],
+    )
+
+    supervisor._worker_on_step("after_tool_call", ticket=ticket, tool_call=tc, result=tool_result.text, tool_result=tool_result)
+    supervisor._worker_on_step("after_tool_call", ticket=ticket, tool_call=tc, result=tool_result.text, tool_result=tool_result)
+
+    assert supervisor.changed_files == ["src/app.py"]
+
+
+def test_format_verification_suggestion_for_python_changes() -> None:
+    supervisor = Supervisor()
+    supervisor.changed_files = ["src/app.py", "README.md"]
+
+    suggestion = supervisor.format_verification_suggestion()
+
+    assert "建议验证" in suggestion
+    assert "src/app.py" in suggestion
+    assert "README.md" in suggestion
+    assert "pytest -q" in suggestion
+
+
+def test_suggest_verification_command_for_python_changes() -> None:
+    supervisor = Supervisor()
+    supervisor.changed_files = ["src/app.py"]
+
+    assert supervisor.suggest_verification_command() == "pytest -q"
+
+
+def test_run_verification_without_changed_files() -> None:
+    supervisor = Supervisor()
+
+    assert supervisor.run_verification() == "当前没有可验证的变更文件"
+
+
+def test_run_verification_without_auto_command() -> None:
+    supervisor = Supervisor()
+    supervisor.changed_files = ["README.md"]
+
+    assert supervisor.run_verification() == "当前变更没有自动验证命令，请手动检查相关文件"
+
+
+def test_run_verification_executes_suggested_command(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["src/app.py"]
+    seen: list[ToolCall] = []
+
+    def fake_execute(tc: ToolCall) -> ToolResult:
+        seen.append(tc)
+        return ToolResult(tool="run_shell", ok=True, text="ok", stdout="tests passed")
+
+    supervisor.harness.execute_tool_call_structured = fake_execute
+
+    result = supervisor.run_verification()
+
+    assert "验证命令: pytest -q" in result
+    assert "验证结果: 通过" in result
+    assert "tests passed" in result
+    assert seen[0].name == "run_shell"
+    assert seen[0].arguments["command"] == "pytest -q"
+    assert seen[0].arguments["cwd"] == str(tmp_path)
+
+
 def test_supervisor_initializes_project_context(tmp_path: Path) -> None:
     (tmp_path / "app.py").write_text("def app(): pass\n", encoding="utf-8")
 
@@ -70,6 +141,27 @@ def test_supervisor_initializes_project_context(tmp_path: Path) -> None:
     assert "项目上下文" in supervisor.memory.project_context
     assert "app.py" in supervisor.memory.project_context
     assert "functions=app" in supervisor.memory.project_context
+
+
+def test_format_context_without_project_context() -> None:
+    supervisor = Supervisor()
+    supervisor.memory.set_project_context("")
+
+    assert supervisor.format_context() == "当前没有项目上下文"
+
+
+def test_refresh_project_context_updates_repo_map(tmp_path: Path) -> None:
+    (tmp_path / "first.py").write_text("def first(): pass\n", encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    assert "first.py" in supervisor.format_context()
+    assert "second.py" not in supervisor.format_context()
+
+    (tmp_path / "second.py").write_text("def second(): pass\n", encoding="utf-8")
+    context = supervisor.refresh_project_context()
+
+    assert context == supervisor.memory.project_context
+    assert "second.py" in supervisor.format_context()
+    assert "functions=second" in supervisor.format_context()
 
 
 def test_parse_constraints_disallows_file_reads() -> None:
@@ -139,6 +231,26 @@ def test_handle_prompt_creates_ticket() -> None:
     assert supervisor.tickets[0].status == "done"
     assert "测试 prompt" in supervisor.tickets[0].description
     assert response is not None
+
+
+def test_handle_prompt_appends_verification_suggestion(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    target = tmp_path / "generated.py"
+    tc = ToolCall(id="call_write", name="write_file", arguments={"path": str(target), "content": "def f():\n    return 1\n"})
+    supervisor.llm_service = MagicMock()
+    supervisor.llm_service.chat.side_effect = [
+        LLMResponse(content='[{"description": "创建 Python 文件"}]'),
+        LLMResponse(content="写入文件", tool_calls=[tc]),
+        LLMResponse(content="已完成", tool_calls=None),
+    ]
+    supervisor.worker.llm_service = supervisor.llm_service
+
+    response = supervisor.handle_prompt("创建 Python 文件", model="mock")
+
+    assert "已完成" in response
+    assert "建议验证" in response
+    assert "pytest -q" in response
+    assert str(target) in response
 
 
 def test_state_transitions() -> None:

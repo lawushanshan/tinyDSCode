@@ -83,6 +83,7 @@ class Worker:
         consecutive_identical_calls = 0
         last_content: Optional[str] = None
         last_tool_signature: Optional[str] = None
+        successful_tool_signatures: set[str] = set()
 
         while iteration < max_iterations:
             iteration += 1
@@ -154,6 +155,16 @@ class Worker:
             for tc in response.tool_calls:
                 args_summary = ", ".join(f"{k}={_truncate(str(v), 80)}" for k, v in tc.arguments.items())
                 console.print(f"[yellow]⚡ 工具调用:[/yellow] {tc.name}({args_summary})")
+                single_signature = _tool_calls_signature([tc])
+                if single_signature in successful_tool_signatures:
+                    message = (
+                        f"重复工具调用已跳过：{tc.name}({args_summary})。"
+                        "该操作已经成功执行过，请基于已有工具结果总结完成，不要重复调用。"
+                    )
+                    console.print(f"[yellow]⚠ {message}[/yellow]")
+                    self.memory.append_tool_result(message)
+                    step.injected_messages.append(message)
+                    continue
 
                 # 请求 Supervisor 审批
                 if on_step:
@@ -173,6 +184,8 @@ class Worker:
 
                 result = self.harness.execute_tool_call_structured(tc)
                 step.tool_results.append(result)
+                if result.ok:
+                    successful_tool_signatures.add(single_signature)
                 if not result.ok:
                     console.print(f"[red]✗ 工具失败:[/red] {_truncate(result.text, 150)}")
                 else:

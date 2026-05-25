@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 from .worker import Worker, StepDirective, _truncate
 from .harness import Harness
-from .llm_service import LLMService
+from .llm_service import LLMService, ToolCall
 from .memory import MemoryManager
 from .repo_map import RepoMapBuilder
 from .tools import create_default_registry
@@ -75,7 +75,7 @@ class Supervisor:
         self.harness = Harness(state_root=self.state_manager.root, tool_registry=self.tool_registry,
                                interactive=interactive)
         self.memory = MemoryManager()
-        self.memory.set_project_context(RepoMapBuilder(self.state_manager.project_root).build().to_prompt())
+        self.refresh_project_context()
         self.llm_service = LLMService(env=llm_env)
         self.worker = Worker(harness=self.harness, llm_service=self.llm_service, memory=self.memory)
         self.tickets: List[Ticket] = []
@@ -84,6 +84,7 @@ class Supervisor:
         self.current_ticket: Optional[Ticket] = None
         self.state: SupervisorState = SupervisorState.IDLE
         self.current_constraints = TaskConstraints(disallowed_tools=set())
+        self.changed_files: list[str] = []
         if load_state:
             self._load_state()
 
@@ -115,6 +116,11 @@ class Supervisor:
             tc = kwargs.get("tool_call")
             ticket = kwargs.get("ticket")
             result = kwargs.get("result", "")
+            tool_result = kwargs.get("tool_result")
+            if tool_result:
+                for path in getattr(tool_result, "changed_files", []):
+                    if path not in self.changed_files:
+                        self.changed_files.append(path)
             is_error = "[ERROR]" in result or "命令执行失败" in result
             status = "失败" if is_error else "成功"
             if tc and ticket:
@@ -218,6 +224,44 @@ class Supervisor:
         ticket.log.append("Ticket 完成")
         self._persist_tickets()
 
+    def format_verification_suggestion(self) -> str:
+        if not self.changed_files:
+            return ""
+
+        lines = ["\n\n建议验证：", "变更文件:"]
+        lines.extend(f"- {path}" for path in self.changed_files)
+        command = self.suggest_verification_command()
+        if command:
+            lines.append(f"建议命令: {command}")
+        else:
+            lines.append("建议命令: 根据变更文件运行相关测试或手动检查。")
+        return "\n".join(lines)
+
+    def suggest_verification_command(self) -> str | None:
+        if any(path.endswith(".py") for path in self.changed_files):
+            return "pytest -q"
+        return None
+
+    def run_verification(self) -> str:
+        command = self.suggest_verification_command()
+        if not self.changed_files:
+            return "当前没有可验证的变更文件"
+        if not command:
+            return "当前变更没有自动验证命令，请手动检查相关文件"
+
+        tc = ToolCall(
+            id="verify",
+            name="run_shell",
+            arguments={
+                "command": command,
+                "cwd": str(self.state_manager.project_root),
+            },
+        )
+        result = self.harness.execute_tool_call_structured(tc)
+        status = "通过" if result.ok else "失败"
+        output = result.stdout or result.text
+        return f"验证命令: {command}\n验证结果: {status}\n{output}"
+
     def list_tickets(self) -> str:
         if not self.tickets:
             return "当前没有 Ticket"
@@ -225,6 +269,16 @@ class Supervisor:
         for ticket in self.tickets:
             lines.append(f"{ticket.ticket_id} [{ticket.status}] - {ticket.description}")
         return "\n".join(lines)
+
+    def refresh_project_context(self) -> str:
+        context = RepoMapBuilder(self.state_manager.project_root).build().to_prompt()
+        self.memory.set_project_context(context)
+        return context
+
+    def format_context(self) -> str:
+        if not self.memory.project_context:
+            return "当前没有项目上下文"
+        return self.memory.project_context
 
     def format_status(self) -> str:
         if not self.current_ticket:
@@ -262,14 +316,14 @@ class Supervisor:
     def start_repl(self, model: str = "deepseek-v4-flash") -> None:
         self.console.print("[green]输入 exit 或 quit 退出会话。[/green]")
         self.console.print("[green]输入 :tickets 查看当前 Ticket 列表。[/green]")
-        self.console.print("[green]可用命令: :help, :tickets, :status, :trace, :new <描述>, exit[/green]")
+        self.console.print("[green]可用命令: :help, :tickets, :status, :trace, :context, :refresh, :verify, :new <描述>, exit[/green]")
         while True:
             user_input = Prompt.ask("[bold cyan]DeepSeek>[/bold cyan]")
             if user_input.strip().lower() in {"exit", "quit"}:
                 break
             if user_input.strip() == ":help":
                 self.console.print(
-                    ":help - 显示帮助\n:tickets - 列出 Ticket\n:status - 当前 Ticket 状态\n:trace - 最近一次执行轨迹\n:new <描述> - 创建并执行新 Ticket\nexit - 退出"
+                    ":help - 显示帮助\n:tickets - 列出 Ticket\n:status - 当前 Ticket 状态\n:trace - 最近一次执行轨迹\n:context - 当前项目上下文\n:refresh - 刷新项目上下文\n:verify - 运行最近一次建议验证命令\n:new <描述> - 创建并执行新 Ticket\nexit - 退出"
                 )
                 continue
             if user_input.strip() == ":tickets":
@@ -280,6 +334,16 @@ class Supervisor:
                 continue
             if user_input.strip() == ":trace":
                 self.console.print(self.format_trace())
+                continue
+            if user_input.strip() == ":context":
+                self.console.print(self.format_context())
+                continue
+            if user_input.strip() == ":refresh":
+                self.refresh_project_context()
+                self.console.print("[green]项目上下文已刷新[/green]")
+                continue
+            if user_input.strip() == ":verify":
+                self.console.print(self.run_verification())
                 continue
             if user_input.strip().startswith(":new "):
                 desc = user_input.strip()[5:].strip()
@@ -392,6 +456,7 @@ class Supervisor:
         try:
             self._reset_stale_running_state()
             self.current_constraints = self._parse_constraints(prompt)
+            self.changed_files = []
             self._transition(SupervisorState.PLANNING)
             parent_ticket = self.create_ticket(prompt)
 
@@ -448,6 +513,7 @@ class Supervisor:
 
             self._transition(SupervisorState.REVIEWING)
             final_result = "\n\n".join(results) if results else "（无结果）"
+            final_result += self.format_verification_suggestion()
             self.complete_ticket(parent_ticket, final_result)
             self.state_manager.save_audit_log(self.worker.harness.audit_log)
 
