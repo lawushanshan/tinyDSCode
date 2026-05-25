@@ -51,6 +51,17 @@ def test_empty_history_build_messages() -> None:
     assert messages[0]["role"] == "system"
 
 
+def test_build_messages_includes_project_context() -> None:
+    memory = MemoryManager()
+    memory.set_project_context("## 项目上下文\n- src/app.py")
+
+    messages = memory.build_messages()
+
+    assert len(messages) == 2
+    assert messages[1]["role"] == "system"
+    assert "src/app.py" in messages[1]["content"]
+
+
 def test_clear_working() -> None:
     memory = MemoryManager()
     memory.history.append({"role": "user", "content": "test"})

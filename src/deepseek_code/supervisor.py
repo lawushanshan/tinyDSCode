@@ -7,10 +7,11 @@ from typing import List, Optional, Literal, Set
 from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.prompt import Prompt
-from .worker import Worker, StepDirective
+from .worker import Worker, StepDirective, _truncate
 from .harness import Harness
 from .llm_service import LLMService
 from .memory import MemoryManager
+from .repo_map import RepoMapBuilder
 from .tools import create_default_registry
 from .persistence import StateManager
 
@@ -58,6 +59,12 @@ class EvaluationAction:
     new_tasks: list[dict] | None = None
 
 
+@dataclass
+class TaskConstraints:
+    disallowed_tools: set[str]
+    reason: str = ""
+
+
 class Supervisor:
     def __init__(self, state_root: str | None = None, load_state: Optional[bool] = None,
                  llm_env: dict | None = None, interactive: bool = False) -> None:
@@ -68,6 +75,7 @@ class Supervisor:
         self.harness = Harness(state_root=self.state_manager.root, tool_registry=self.tool_registry,
                                interactive=interactive)
         self.memory = MemoryManager()
+        self.memory.set_project_context(RepoMapBuilder(self.state_manager.project_root).build().to_prompt())
         self.llm_service = LLMService(env=llm_env)
         self.worker = Worker(harness=self.harness, llm_service=self.llm_service, memory=self.memory)
         self.tickets: List[Ticket] = []
@@ -75,6 +83,7 @@ class Supervisor:
         self.ticket_counter = 0
         self.current_ticket: Optional[Ticket] = None
         self.state: SupervisorState = SupervisorState.IDLE
+        self.current_constraints = TaskConstraints(disallowed_tools=set())
         if load_state:
             self._load_state()
 
@@ -82,6 +91,19 @@ class Supervisor:
         if step_type == "before_tool_call":
             tc = kwargs.get("tool_call")
             ticket = kwargs.get("ticket")
+            if tc and tc.name in self.current_constraints.disallowed_tools:
+                reason = self.current_constraints.reason or f"用户约束禁止调用工具 {tc.name}"
+                if ticket:
+                    ticket.log.append(f"工具被拒绝: {tc.name} - {reason}")
+                    ticket.updated_at = datetime.now(timezone.utc)
+                    self._persist_tickets()
+                return StepDirective(
+                    approved=False,
+                    inject_message=(
+                        f"用户明确要求不要调用 {tc.name}。"
+                        f"{reason} 请基于已提供的项目上下文直接回答，不要再调用该工具。"
+                    ),
+                )
             if tc and ticket:
                 args = tc.arguments
                 ticket.log.append(f"工具调用: {tc.name}({json.dumps(args, ensure_ascii=False)})")
@@ -138,6 +160,36 @@ class Supervisor:
             "updated_at": datetime.now(timezone.utc).isoformat(),
         })
 
+    def _parse_constraints(self, prompt: str) -> TaskConstraints:
+        normalized = prompt.lower()
+        disallowed: set[str] = set()
+        reasons: list[str] = []
+
+        if any(marker in prompt for marker in ("不要读取文件", "不要读文件", "无需读取文件", "不读取文件")):
+            disallowed.update({"read_file", "list_dir", "search_files", "search_content"})
+            reasons.append("用户要求不要读取文件。")
+
+        if any(marker in prompt for marker in ("不要调用工具", "不调用工具", "不要使用工具", "不使用工具")):
+            disallowed.update(
+                {
+                    "read_file",
+                    "write_file",
+                    "apply_patch",
+                    "list_dir",
+                    "run_shell",
+                    "search_files",
+                    "search_content",
+                    "web_search",
+                }
+            )
+            reasons.append("用户要求不要调用工具。")
+
+        if "based on project context" in normalized and "do not read" in normalized:
+            disallowed.update({"read_file", "list_dir", "search_files", "search_content"})
+            reasons.append("User asked to answer from project context without reading files.")
+
+        return TaskConstraints(disallowed_tools=disallowed, reason=" ".join(reasons))
+
     def _next_ticket_id(self) -> str:
         self.ticket_counter += 1
         return f"T-{self.ticket_counter:03d}"
@@ -174,28 +226,60 @@ class Supervisor:
             lines.append(f"{ticket.ticket_id} [{ticket.status}] - {ticket.description}")
         return "\n".join(lines)
 
+    def format_status(self) -> str:
+        if not self.current_ticket:
+            return "当前没有正在运行的 Ticket"
+        t = self.current_ticket
+        logs = "\n".join(t.log) if t.log else "（无日志）"
+        return f"当前 Ticket: {t.ticket_id} [{t.status}]\n描述: {t.description}\n日志:\n{logs}"
+
+    def format_trace(self) -> str:
+        steps = self.worker.last_steps
+        if not steps:
+            return "当前没有可显示的执行轨迹"
+
+        lines = [f"执行轨迹：{len(steps)} 轮"]
+        for step in steps:
+            suffix = f"，结束原因: {step.done_reason}" if step.done_reason else ""
+            lines.append(f"\n# 循环 {step.iteration} / Ticket {step.ticket_id}{suffix}")
+            if step.injected_messages:
+                for msg in step.injected_messages:
+                    lines.append(f"注入消息: {_truncate(msg, 160)}")
+            if step.assistant_content:
+                lines.append(f"LLM 输出: {_truncate(step.assistant_content, 240)}")
+            if step.tool_calls:
+                for index, tc in enumerate(step.tool_calls, 1):
+                    args = json.dumps(tc.arguments, ensure_ascii=False)
+                    lines.append(f"工具调用 {index}: {tc.name}({args})")
+            if step.tool_results:
+                for index, result in enumerate(step.tool_results, 1):
+                    status = "成功" if result.ok else "失败"
+                    lines.append(f"工具结果 {index} [{status}]: {_truncate(result.text, 240)}")
+            if not step.assistant_content and not step.tool_calls and not step.injected_messages:
+                lines.append("（本轮无可显示内容）")
+        return "\n".join(lines)
+
     def start_repl(self, model: str = "deepseek-v4-flash") -> None:
         self.console.print("[green]输入 exit 或 quit 退出会话。[/green]")
         self.console.print("[green]输入 :tickets 查看当前 Ticket 列表。[/green]")
-        self.console.print("[green]可用命令: :help, :tickets, :status, :new <描述>, exit[/green]")
+        self.console.print("[green]可用命令: :help, :tickets, :status, :trace, :new <描述>, exit[/green]")
         while True:
             user_input = Prompt.ask("[bold cyan]DeepSeek>[/bold cyan]")
             if user_input.strip().lower() in {"exit", "quit"}:
                 break
             if user_input.strip() == ":help":
                 self.console.print(
-                    ":help - 显示帮助\n:tickets - 列出 Ticket\n:status - 当前 Ticket 状态\n:new <描述> - 创建并执行新 Ticket\nexit - 退出"
+                    ":help - 显示帮助\n:tickets - 列出 Ticket\n:status - 当前 Ticket 状态\n:trace - 最近一次执行轨迹\n:new <描述> - 创建并执行新 Ticket\nexit - 退出"
                 )
                 continue
             if user_input.strip() == ":tickets":
                 self.console.print(self.list_tickets())
                 continue
             if user_input.strip() == ":status":
-                if self.current_ticket:
-                    t = self.current_ticket
-                    self.console.print(f"当前 Ticket: {t.ticket_id} [{t.status}]\n描述: {t.description}\n日志:\n" + "\n".join(t.log))
-                else:
-                    self.console.print("当前没有正在运行的 Ticket")
+                self.console.print(self.format_status())
+                continue
+            if user_input.strip() == ":trace":
+                self.console.print(self.format_trace())
                 continue
             if user_input.strip().startswith(":new "):
                 desc = user_input.strip()[5:].strip()
@@ -307,6 +391,7 @@ class Supervisor:
     def handle_prompt(self, prompt: str, model: str = "deepseek-v4-flash") -> str:
         try:
             self._reset_stale_running_state()
+            self.current_constraints = self._parse_constraints(prompt)
             self._transition(SupervisorState.PLANNING)
             parent_ticket = self.create_ticket(prompt)
 
@@ -375,6 +460,7 @@ class Supervisor:
                 pass
             raise
         finally:
+            self.current_constraints = TaskConstraints(disallowed_tools=set())
             if self.state != SupervisorState.IDLE:
                 try:
                     self._transition(SupervisorState.IDLE)

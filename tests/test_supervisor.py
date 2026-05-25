@@ -2,7 +2,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from deepseek_code.supervisor import Supervisor, SupervisorState
-from deepseek_code.llm_service import LLMResponse
+from deepseek_code.llm_service import LLMResponse, ToolCall
 from deepseek_code.worker import StepDirective
 from deepseek_code.persistence import StateManager
 
@@ -12,6 +12,121 @@ def test_create_and_list_tickets() -> None:
     assert supervisor.list_tickets() == "当前没有 Ticket"
     supervisor.create_ticket("测试任务")
     assert "T-001 [pending] - 测试任务" in supervisor.list_tickets()
+
+
+def test_format_status_without_current_ticket() -> None:
+    supervisor = Supervisor()
+    assert supervisor.format_status() == "当前没有正在运行的 Ticket"
+
+
+def test_format_status_with_current_ticket() -> None:
+    supervisor = Supervisor()
+    ticket = supervisor.create_ticket("测试状态")
+    supervisor.start_ticket(ticket)
+
+    status = supervisor.format_status()
+
+    assert "当前 Ticket: T-001 [running]" in status
+    assert "描述: 测试状态" in status
+    assert "Ticket 开始执行" in status
+
+
+def test_format_trace_without_steps() -> None:
+    supervisor = Supervisor()
+    assert supervisor.format_trace() == "当前没有可显示的执行轨迹"
+
+
+def test_format_trace_with_tool_result(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    test_file = tmp_path / "trace.txt"
+    test_file.write_text("trace-data", encoding="utf-8")
+    tc = ToolCall(id="call_trace", name="read_file", arguments={"path": str(test_file)})
+
+    supervisor.worker.llm_service = MagicMock()
+    supervisor.worker.llm_service.chat.side_effect = [
+        LLMResponse(content="读取 trace 文件", tool_calls=[tc]),
+        LLMResponse(content="完成", tool_calls=None),
+    ]
+
+    ticket = supervisor.create_ticket("查看 trace")
+    supervisor.start_ticket(ticket)
+    supervisor.worker.execute_ticket(ticket, model="mock", on_step=supervisor._worker_on_step)
+
+    trace = supervisor.format_trace()
+
+    assert "执行轨迹：2 轮" in trace
+    assert "循环 1" in trace
+    assert "LLM 输出: 读取 trace 文件" in trace
+    assert "工具调用 1: read_file" in trace
+    assert "工具结果 1 [成功]: trace-data" in trace
+    assert "结束原因: assistant_final" in trace
+
+
+def test_supervisor_initializes_project_context(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("def app(): pass\n", encoding="utf-8")
+
+    supervisor = Supervisor(state_root=str(tmp_path))
+
+    assert "项目上下文" in supervisor.memory.project_context
+    assert "app.py" in supervisor.memory.project_context
+    assert "functions=app" in supervisor.memory.project_context
+
+
+def test_parse_constraints_disallows_file_reads() -> None:
+    supervisor = Supervisor()
+
+    constraints = supervisor._parse_constraints("请基于项目上下文回答，不要读取文件")
+
+    assert "read_file" in constraints.disallowed_tools
+    assert "list_dir" in constraints.disallowed_tools
+    assert "search_files" in constraints.disallowed_tools
+    assert "search_content" in constraints.disallowed_tools
+
+
+def test_parse_constraints_disallows_all_tools() -> None:
+    supervisor = Supervisor()
+
+    constraints = supervisor._parse_constraints("请直接回答，不要调用工具")
+
+    assert "read_file" in constraints.disallowed_tools
+    assert "write_file" in constraints.disallowed_tools
+    assert "run_shell" in constraints.disallowed_tools
+    assert "web_search" in constraints.disallowed_tools
+
+
+def test_worker_on_step_rejects_disallowed_tool(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("基于上下文回答，不要读取文件")
+    supervisor.current_constraints = supervisor._parse_constraints(ticket.description)
+    tc = ToolCall(id="call_read", name="read_file", arguments={"path": "README.md"})
+
+    directive = supervisor._worker_on_step("before_tool_call", ticket=ticket, tool_call=tc)
+
+    assert directive.approved is False
+    assert directive.inject_message is not None
+    assert "不要调用 read_file" in directive.inject_message
+    assert "工具被拒绝: read_file" in ticket.log[-1]
+
+
+def test_handle_prompt_honors_no_read_file_constraint(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    readme = tmp_path / "README.md"
+    readme.write_text("secret", encoding="utf-8")
+
+    tc = ToolCall(id="call_read", name="read_file", arguments={"path": str(readme)})
+    supervisor.llm_service = MagicMock()
+    supervisor.llm_service.chat.side_effect = [
+        LLMResponse(content='[{"description": "回答核心模块"}]'),
+        LLMResponse(content="我想读文件", tool_calls=[tc]),
+        LLMResponse(content="基于项目上下文回答：cli/supervisor/worker/harness", tool_calls=None),
+    ]
+    supervisor.worker.llm_service = supervisor.llm_service
+
+    response = supervisor.handle_prompt("请基于项目上下文回答，不要读取文件", model="mock")
+
+    assert "基于项目上下文回答" in response
+    assert not supervisor.worker.last_steps[0].tool_results
+    assert any("工具被拒绝: read_file" in item for item in supervisor.current_ticket.log)
 
 
 def test_handle_prompt_creates_ticket() -> None:

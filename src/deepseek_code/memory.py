@@ -8,6 +8,7 @@ class MemoryManager:
     def __init__(self, max_context_tokens: int = 8000) -> None:
         self.history: list[dict[str, str]] = []
         self.max_context_tokens = max_context_tokens
+        self.project_context: str = ""
 
     def load_ticket(self, ticket: Any) -> None:
         self.history.append({"role": "user", "content": ticket.description})
@@ -20,6 +21,9 @@ class MemoryManager:
 
     def append_system(self, content: str) -> None:
         self.history.append({"role": "user", "content": content})
+
+    def set_project_context(self, content: str) -> None:
+        self.project_context = content.strip()
 
     def _build_system_prompt(self) -> str:
         return (
@@ -113,6 +117,8 @@ class MemoryManager:
         messages: list[dict[str, str]] = [
             {"role": "system", "content": self._build_system_prompt()},
         ]
+        if self.project_context:
+            messages.append({"role": "system", "content": self.project_context})
         trimmed_history = self._trim_history()
         messages.extend(trimmed_history)
         return messages

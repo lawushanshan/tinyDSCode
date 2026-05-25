@@ -8,6 +8,7 @@ from deepseek_code.supervisor import Supervisor
 
 def test_state_manager_save_load(tmp_path: Path) -> None:
     manager = StateManager(root=tmp_path)
+    assert manager.project_root == tmp_path
     tickets = [{"ticket_id": "T-001", "description": "测试", "status": "done"}]
     manager.save_tickets(tickets)
     assert manager.load_tickets() == tickets

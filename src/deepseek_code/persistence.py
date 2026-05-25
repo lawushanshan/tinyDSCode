@@ -7,6 +7,7 @@ from typing import Any
 class StateManager:
     def __init__(self, root: Path | str | None = None) -> None:
         base = Path(root) if root is not None else Path.cwd()
+        self.project_root = base
         # always store state under a .harness_state directory
         self.root = base / ".harness_state"
         self.root.mkdir(parents=True, exist_ok=True)
