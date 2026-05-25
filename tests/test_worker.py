@@ -42,6 +42,30 @@ def test_execute_ticket_with_tool_calls(tmp_path) -> None:
     assert result == "文件内容是空的"
     assert ticket.status == "done"
     assert worker.llm_service.chat.call_count == 2
+    assert len(worker.last_steps) == 2
+    assert worker.last_steps[0].iteration == 1
+    assert worker.last_steps[0].assistant_content == "让我读取文件"
+    assert worker.last_steps[0].tool_calls == [tc]
+    assert worker.last_steps[0].tool_results[0].ok is True
+    assert worker.last_steps[1].done_reason == "assistant_final"
+
+
+def test_agent_steps_reset_between_tickets(tmp_path) -> None:
+    worker = _make_worker(tmp_path)
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.return_value = LLMResponse(content="完成", tool_calls=None)
+
+    first = Ticket(ticket_id="T-001", description="第一项")
+    second = Ticket(ticket_id="T-002", description="第二项")
+
+    worker.execute_ticket(first)
+    assert len(worker.last_steps) == 1
+    assert worker.last_steps[0].ticket_id == "T-001"
+
+    worker.execute_ticket(second)
+    assert len(worker.last_steps) == 1
+    assert worker.last_steps[0].ticket_id == "T-002"
+    assert worker.last_steps[0].done_reason == "assistant_final"
 
 
 def test_max_loop_iterations(tmp_path) -> None:
@@ -133,6 +157,7 @@ def test_identical_tool_calls_terminate(tmp_path) -> None:
     assert "重复" in result or "终止" in result
     # 应在第 4 次循环终止（连续 3 次相同后触发）
     assert worker.llm_service.chat.call_count <= 4
+    assert worker.last_steps[-1].done_reason == "repeated_tool_calls"
 
 
 def test_different_tool_calls_reset_counter(tmp_path) -> None:
@@ -184,6 +209,36 @@ def test_on_step_reject_tool_call(tmp_path) -> None:
     result = worker.execute_ticket(ticket, on_step=reject_first_tool)
     assert result == "已完成"
     assert ticket.status == "done"
+
+
+def test_on_step_receives_ticket_for_tool_events(tmp_path) -> None:
+    """工具调用前后回调应携带当前 Ticket，便于 Supervisor 记录日志"""
+    worker = _make_worker(tmp_path)
+    seen: list[tuple[str, Ticket | None, object | None]] = []
+
+    def record_ticket(step_type, **kwargs):
+        if step_type in {"before_tool_call", "after_tool_call"}:
+            seen.append((step_type, kwargs.get("ticket"), kwargs.get("tool_result")))
+        return StepDirective()
+
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("ok", encoding="utf-8")
+    tc = ToolCall(id="c1", name="read_file", arguments={"path": str(test_file)})
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.side_effect = [
+        LLMResponse(content="读取文件", tool_calls=[tc]),
+        LLMResponse(content="完成", tool_calls=None),
+    ]
+
+    ticket = Ticket(ticket_id="T-010", description="读取文件")
+    result = worker.execute_ticket(ticket, on_step=record_ticket)
+
+    assert result == "完成"
+    assert seen[0] == ("before_tool_call", ticket, None)
+    assert seen[1][0] == "after_tool_call"
+    assert seen[1][1] is ticket
+    assert seen[1][2].ok is True
+    assert seen[1][2].tool == "read_file"
 
 
 def test_on_step_abort(tmp_path) -> None:

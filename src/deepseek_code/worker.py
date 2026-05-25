@@ -1,14 +1,12 @@
 from __future__ import annotations
 import json
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
 
 from .harness import Harness
-from .llm_service import LLMService, LLMResponse
+from .llm_service import LLMService, ToolCall
 from .memory import MemoryManager
 
 if TYPE_CHECKING:
@@ -35,6 +33,17 @@ class StepDirective:
     abort: bool = False
 
 
+@dataclass
+class AgentStep:
+    iteration: int
+    ticket_id: str
+    assistant_content: str | None = None
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    tool_results: list[Any] = field(default_factory=list)
+    injected_messages: list[str] = field(default_factory=list)
+    done_reason: str | None = None
+
+
 def _tool_calls_signature(tool_calls) -> str:
     """将 tool_calls 列表序列化为可比较的签名字符串"""
     parts = []
@@ -54,6 +63,7 @@ class Worker:
         self.harness = harness
         self.llm_service = llm_service
         self.memory = memory
+        self.last_steps: list[AgentStep] = []
 
     def execute_ticket(
         self,
@@ -62,6 +72,7 @@ class Worker:
         on_step: Callable[[str, ...], StepDirective] | None = None,
     ) -> str:
         self.memory.load_ticket(ticket)
+        self.last_steps = []
         console.print()
         console.rule(f"[bold green]Worker: 执行 {ticket.ticket_id}[/bold green]")
         console.print(f"[dim]描述: {ticket.description}[/dim]")
@@ -75,6 +86,8 @@ class Worker:
 
         while iteration < max_iterations:
             iteration += 1
+            step = AgentStep(iteration=iteration, ticket_id=ticket.ticket_id)
+            self.last_steps.append(step)
             console.print()
             console.print(f"[bold cyan]▸ 循环 {iteration}/{max_iterations}[/bold cyan]")
 
@@ -84,9 +97,11 @@ class Worker:
                 if directive.abort:
                     console.print("[yellow]⚠ Supervisor 中止任务[/yellow]")
                     ticket.status = "failed"
+                    step.done_reason = "aborted_by_supervisor"
                     return "（任务被 Supervisor 中止）"
                 if directive.inject_message:
                     self.memory.append_system(directive.inject_message)
+                    step.injected_messages.append(directive.inject_message)
                     console.print("[bold blue]📋 进度检查[/bold blue]")
 
             messages = self.memory.build_messages()
@@ -96,6 +111,8 @@ class Worker:
                 else None
             )
             response = self.llm_service.chat(messages=messages, tools=tools_schema)
+            step.assistant_content = response.content
+            step.tool_calls = list(response.tool_calls or [])
 
             if response.content:
                 self.memory.append_assistant(response.content)
@@ -108,11 +125,13 @@ class Worker:
                         console.print(
                             f"[yellow]⚠ 连续 {MAX_CONSECUTIVE_NO_PROGRESS} 次无进展，终止循环[/yellow]"
                         )
+                        step.done_reason = "no_progress"
                         return response.content or "（无输出）"
                 else:
                     consecutive_no_progress = 0
                 last_content = response.content
                 ticket.status = "done"
+                step.done_reason = "assistant_final"
                 console.print(f"[bold green]✓ Ticket 完成[/bold green]")
                 return response.content or "（无输出）"
 
@@ -126,6 +145,7 @@ class Worker:
                     console.print(
                         f"[yellow]⚠ 连续 {MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS} 次相同工具调用，终止循环[/yellow]"
                     )
+                    step.done_reason = "repeated_tool_calls"
                     return last_content or "（检测到重复工具调用，循环已终止）"
             else:
                 consecutive_identical_calls = 0
@@ -137,29 +157,33 @@ class Worker:
 
                 # 请求 Supervisor 审批
                 if on_step:
-                    directive = on_step("before_tool_call", tool_call=tc, iteration=iteration)
+                    directive = on_step("before_tool_call", ticket=ticket, tool_call=tc, iteration=iteration)
                     if directive.abort:
                         console.print("[yellow]⚠ Supervisor 中止任务[/yellow]")
                         ticket.status = "failed"
+                        step.done_reason = "aborted_by_supervisor"
                         return "（任务被 Supervisor 中止）"
                     if not directive.approved:
                         console.print(f"[red]⊘ 工具被拒绝:[/red] {tc.name}")
                         self.memory.append_tool_result(f"（操作已被 Supervisor 拒绝）{tc.name}({args_summary})")
                         if directive.inject_message:
                             self.memory.append_system(directive.inject_message)
+                            step.injected_messages.append(directive.inject_message)
                         break
 
-                result = self.harness.execute_tool_call(tc)
-                is_error = result.startswith("[命令执行失败") or result.startswith("[ERROR]")
-                if is_error:
-                    console.print(f"[red]✗ 工具失败:[/red] {_truncate(result, 150)}")
+                result = self.harness.execute_tool_call_structured(tc)
+                step.tool_results.append(result)
+                if not result.ok:
+                    console.print(f"[red]✗ 工具失败:[/red] {_truncate(result.text, 150)}")
                 else:
-                    console.print(f"[green]✓ 工具结果:[/green] {_truncate(result, 150)}")
-                self.memory.append_tool_result(f"工具执行结果：{result}")
+                    console.print(f"[green]✓ 工具结果:[/green] {_truncate(result.text, 150)}")
+                self.memory.append_tool_result(f"工具执行结果：{result.text}")
 
                 # 执行后汇报
                 if on_step:
-                    on_step("after_tool_call", tool_call=tc, result=result)
+                    on_step("after_tool_call", ticket=ticket, tool_call=tc, result=result.text, tool_result=result)
 
         console.print(f"[yellow]⚠ 达到最大循环次数 {max_iterations}，Ticket 未完成[/yellow]")
+        if self.last_steps:
+            self.last_steps[-1].done_reason = "max_iterations"
         return last_content or f"[警告] 达到最大循环次数 {max_iterations}，Ticket 未完成。"

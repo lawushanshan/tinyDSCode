@@ -137,10 +137,13 @@ class Evaluator:
 
 返回格式示例：
 ["/path/to/file.py", "D:\\path\\to\\file.py"]
-"""
+        """
         
         try:
-            response = self.llm_service.chat(messages=[{"role": "user", "content": prompt}])
+            llm_service = getattr(self.supervisor, "llm_service", None)
+            if llm_service is None:
+                return []
+            response = llm_service.chat(messages=[{"role": "user", "content": prompt}])
             import json
             cleaned = response.content.strip() if response.content else "[]"
             start = cleaned.find("[")

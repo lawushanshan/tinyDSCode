@@ -124,6 +124,14 @@ class Supervisor:
         self.state = new_state
         self._persist_state()
 
+    def _reset_stale_running_state(self) -> None:
+        if self.state != SupervisorState.IDLE:
+            self.console.print(
+                f"[yellow]检测到上次遗留状态 {self.state.value}，启动新任务前已重置为 idle。[/yellow]"
+            )
+            self.state = SupervisorState.IDLE
+            self._persist_state()
+
     def _persist_state(self) -> None:
         self.state_manager.save_supervisor_state({
             "state": self.state.value,
@@ -298,6 +306,7 @@ class Supervisor:
 
     def handle_prompt(self, prompt: str, model: str = "deepseek-v4-flash") -> str:
         try:
+            self._reset_stale_running_state()
             self._transition(SupervisorState.PLANNING)
             parent_ticket = self.create_ticket(prompt)
 

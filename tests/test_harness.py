@@ -28,6 +28,35 @@ def test_execute_tool_call(tmp_path: Path) -> None:
     assert file_path.read_text(encoding="utf-8") == "data"
 
 
+def test_execute_tool_call_structured_write_file(tmp_path: Path) -> None:
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry)
+    file_path = tmp_path / "structured.txt"
+    tc = ToolCall(id="call_struct", name="write_file", arguments={"path": str(file_path), "content": "data"})
+
+    result = harness.execute_tool_call_structured(tc)
+
+    assert result.ok is True
+    assert result.tool == "write_file"
+    assert result.text == f"已写入 {file_path}"
+    assert result.changed_files == [str(file_path)]
+    assert file_path.read_text(encoding="utf-8") == "data"
+
+
+def test_execute_tool_call_structured_shell_error(tmp_path: Path) -> None:
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry, interactive=False)
+    tc = ToolCall(id="call_struct_err", name="run_shell", arguments={"command": "nonexistent_command_xyz_123"})
+
+    result = harness.execute_tool_call_structured(tc)
+
+    assert result.ok is False
+    assert result.tool == "run_shell"
+    assert result.exit_code is not None
+    assert "命令执行失败" in result.text
+    assert result.error == result.text
+
+
 def test_execute_tool_call_read_file(tmp_path: Path) -> None:
     registry = create_default_registry()
     harness = Harness(state_root=str(tmp_path), tool_registry=registry)

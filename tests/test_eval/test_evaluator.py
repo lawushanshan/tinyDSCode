@@ -63,6 +63,17 @@ def test_run_single_extract_failed(tmp_path) -> None:
     assert "Could not extract" in result.error_message
 
 
+def test_extract_written_file_paths_uses_supervisor_llm_fallback() -> None:
+    evaluator = _make_evaluator()
+    evaluator.supervisor.llm_service = MagicMock()
+    evaluator.supervisor.llm_service.chat.return_value.content = '["generated_solution.py"]'
+
+    paths = evaluator._extract_written_file_paths("代码已经生成完成。")
+
+    assert paths == ["generated_solution.py"]
+    evaluator.supervisor.llm_service.chat.assert_called_once()
+
+
 def test_run_single_agent_error(tmp_path) -> None:
     evaluator = _make_evaluator()
     task = EvalTask(

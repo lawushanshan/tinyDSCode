@@ -1,12 +1,26 @@
 from __future__ import annotations
+import re
 from typing import Any
 
+from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.prompt import Confirm
 
 from .tools import ToolRegistry
 from .llm_service import ToolCall
 from .persistence import StateManager
+
+
+class ToolResult(BaseModel):
+    tool: str
+    ok: bool
+    text: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+    stdout: str = ""
+    stderr: str = ""
+    exit_code: int | None = None
+    changed_files: list[str] = Field(default_factory=list)
 
 
 class Harness:
@@ -38,7 +52,7 @@ class Harness:
         self.state_manager.save_audit_log(self.audit_log)
         return result
 
-    def execute_tool_call(self, tool_call: ToolCall) -> str:
+    def execute_tool_call_structured(self, tool_call: ToolCall) -> ToolResult:
         tool_name = tool_call.name
         args = tool_call.arguments
         self.audit_log.append({
@@ -51,20 +65,80 @@ class Harness:
             result_text = str(result) if result is not None else "（无返回值）"
         except Exception as exc:
             result_text = f"[ERROR] {type(exc).__name__}: {exc}"
+            structured = ToolResult(
+                tool=tool_name,
+                ok=False,
+                text=result_text,
+                arguments=args,
+                error=result_text,
+            )
             self.audit_log.append({
                 "action": "tool_error",
                 "tool": tool_name,
                 "error": result_text,
+                "structured": structured.model_dump(),
             })
             self.state_manager.save_audit_log(self.audit_log)
-            return result_text
+            return structured
+
+        structured = self._build_tool_result(tool_name, args, result_text)
 
         self.audit_log.append({
             "action": "tool_result",
             "tool": tool_name,
             "result": result_text,
+            "structured": structured.model_dump(),
         })
-        return result_text
+        return structured
+
+    def execute_tool_call(self, tool_call: ToolCall) -> str:
+        return self.execute_tool_call_structured(tool_call).text
+
+    def _build_tool_result(self, tool_name: str, args: dict[str, Any], result_text: str) -> ToolResult:
+        ok = not (
+            result_text.startswith("[命令执行失败")
+            or result_text.startswith("[ERROR]")
+            or result_text.startswith("[搜索失败]")
+        )
+        changed_files: list[str] = []
+        if ok and tool_name in {"write_file", "apply_patch"}:
+            path = args.get("path")
+            if isinstance(path, str):
+                changed_files.append(path)
+
+        exit_code = None
+        stdout = ""
+        stderr = ""
+        error = None
+        if tool_name == "run_shell":
+            match = re.match(
+                r"\[命令执行失败 \(退出码 (?P<code>-?\d+)\)\].*?\nstdout:\n(?P<stdout>.*?)\nstderr:\n(?P<stderr>.*)",
+                result_text,
+                re.DOTALL,
+            )
+            if match:
+                exit_code = int(match.group("code"))
+                stdout = match.group("stdout")
+                stderr = match.group("stderr")
+                error = result_text
+            elif ok:
+                stdout = result_text
+                exit_code = 0
+
+        if not ok and error is None:
+            error = result_text
+
+        return ToolResult(
+            tool=tool_name,
+            ok=ok,
+            text=result_text,
+            arguments=args,
+            error=error,
+            stdout=stdout,
+            stderr=stderr,
+            exit_code=exit_code,
+            changed_files=changed_files,
+        )
 
     def perform_action(
         self,

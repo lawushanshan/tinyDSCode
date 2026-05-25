@@ -81,6 +81,23 @@ def test_handle_prompt_failure_state() -> None:
     assert supervisor.state == SupervisorState.IDLE
 
 
+def test_handle_prompt_resets_stale_loaded_state(tmp_path: Path) -> None:
+    state_manager = StateManager(root=tmp_path)
+    state_manager.save_supervisor_state({"state": "planning"})
+
+    supervisor = Supervisor(state_root=str(tmp_path))
+    assert supervisor.state == SupervisorState.PLANNING
+
+    supervisor.worker.execute_ticket = lambda ticket, model, on_step=None: "结果"
+    supervisor.llm_service = MagicMock()
+    supervisor.llm_service.chat.return_value = LLMResponse(content='[{"description": "新任务"}]')
+
+    response = supervisor.handle_prompt("新任务", model="mock")
+
+    assert "结果" in response
+    assert supervisor.state == SupervisorState.IDLE
+
+
 def test_state_persistence(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     supervisor._transition(SupervisorState.PLANNING)
