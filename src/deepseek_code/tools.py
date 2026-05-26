@@ -109,32 +109,74 @@ class Tools:
         patch_lines = patch_text.splitlines(keepends=False)
         line_index = 0
         pos = 0
+        hunks_applied = 0
+
+        def line_body(line: str) -> str:
+            if line.endswith("\n"):
+                line = line[:-1]
+            if line.endswith("\r"):
+                line = line[:-1]
+            return line
+
+        def expect_original(expected: str, kind: str) -> str:
+            nonlocal line_index
+            if line_index >= len(original_lines):
+                raise ValueError(f"补丁{kind}超出文件末尾: {expected!r}")
+            actual = line_body(original_lines[line_index])
+            if actual != expected:
+                raise ValueError(
+                    f"补丁{kind}不匹配: 第 {line_index + 1} 行期望 {expected!r}，实际 {actual!r}"
+                )
+            original = original_lines[line_index]
+            line_index += 1
+            return original
 
         while pos < len(patch_lines):
             line = patch_lines[pos]
             if line.startswith("@@"):
                 header = line
-                match = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", header)
+                match = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$", header)
                 if not match:
                     raise ValueError(f"无法解析 diff 头: {header}")
-                old_start = int(match.group(1)) - 1
+                old_start_raw = int(match.group(1))
+                old_start = 0 if old_start_raw == 0 else old_start_raw - 1
+                old_count = int(match.group(2) or "1")
+                new_count = int(match.group(4) or "1")
+                if old_start < line_index:
+                    raise ValueError(f"diff hunk 顺序错误或重叠: {header}")
+                if old_start > len(original_lines):
+                    raise ValueError(f"diff hunk 起始行超出文件长度: {header}")
                 pos += 1
                 patched_lines.extend(original_lines[line_index:old_start])
                 line_index = old_start
+                consumed_old = 0
+                produced_new = 0
                 while pos < len(patch_lines) and not patch_lines[pos].startswith("@@"):
                     diff_line = patch_lines[pos]
                     if diff_line.startswith(" "):
-                        patched_lines.append(original_lines[line_index])
-                        line_index += 1
+                        patched_lines.append(expect_original(diff_line[1:], "上下文"))
+                        consumed_old += 1
+                        produced_new += 1
                     elif diff_line.startswith("-"):
-                        line_index += 1
+                        expect_original(diff_line[1:], "删除行")
+                        consumed_old += 1
                     elif diff_line.startswith("+"):
                         patched_lines.append(diff_line[1:] + "\n")
+                        produced_new += 1
+                    elif diff_line.startswith("\\ No newline at end of file"):
+                        pass
                     else:
                         raise ValueError(f"无法解析 diff 行: {diff_line}")
                     pos += 1
+                if consumed_old != old_count:
+                    raise ValueError(f"diff hunk 删除/上下文行数不匹配: {header}")
+                if produced_new != new_count:
+                    raise ValueError(f"diff hunk 新增/上下文行数不匹配: {header}")
+                hunks_applied += 1
             else:
                 pos += 1
+        if hunks_applied == 0:
+            raise ValueError("补丁不包含任何 hunk")
         patched_lines.extend(original_lines[line_index:])
         file_path.write_text("".join(patched_lines), encoding="utf-8")
 

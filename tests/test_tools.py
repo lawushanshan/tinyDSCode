@@ -35,6 +35,59 @@ def test_apply_patch(tmp_path: Path) -> None:
     assert file_path.read_text(encoding="utf-8") == "line1\nline2 modified\nline3\n"
 
 
+def test_apply_patch_multiple_hunks(tmp_path: Path) -> None:
+    file_path = tmp_path / "example.txt"
+    file_path.write_text("a\nb\nc\nd\ne\n", encoding="utf-8")
+    patch = """--- a/example.txt
++++ b/example.txt
+@@ -1,2 +1,2 @@
+ a
+-b
++B
+@@ -4,2 +4,2 @@
+ d
+-e
++E
+"""
+
+    Tools.apply_patch(str(file_path), patch)
+
+    assert file_path.read_text(encoding="utf-8") == "a\nB\nc\nd\nE\n"
+
+
+def test_apply_patch_rejects_mismatched_context_without_writing(tmp_path: Path) -> None:
+    file_path = tmp_path / "example.txt"
+    original = "line1\nline2\nline3\n"
+    file_path.write_text(original, encoding="utf-8")
+    patch = """--- a/example.txt
++++ b/example.txt
+@@ -1,3 +1,3 @@
+ line1
+-not-line2
++line2 modified
+ line3
+"""
+
+    try:
+        Tools.apply_patch(str(file_path), patch)
+        assert False, "应该拒绝上下文不匹配的补丁"
+    except ValueError as exc:
+        assert "不匹配" in str(exc)
+
+    assert file_path.read_text(encoding="utf-8") == original
+
+
+def test_apply_patch_rejects_patch_without_hunk(tmp_path: Path) -> None:
+    file_path = tmp_path / "example.txt"
+    file_path.write_text("line1\n", encoding="utf-8")
+
+    try:
+        Tools.apply_patch(str(file_path), "--- a/example.txt\n+++ b/example.txt\n")
+        assert False, "应该拒绝不包含 hunk 的补丁"
+    except ValueError as exc:
+        assert "不包含任何 hunk" in str(exc)
+
+
 # --- ToolRegistry 测试 ---
 
 
