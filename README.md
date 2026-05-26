@@ -75,6 +75,7 @@ deepseek-code repl
 | `/trace` | 查看最近一次执行轨迹 |
 | `/context` | 查看当前项目上下文 |
 | `/refresh` | 刷新项目上下文 |
+| `/diff` | 查看当前变更 diff |
 | `/verify` | 运行最近一次建议验证命令 |
 | `/new <描述>` | 创建并执行新 Ticket |
 | `exit` / `quit` | 退出会话 |

@@ -1,8 +1,11 @@
 from __future__ import annotations
+import difflib
 import json
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import List, Optional, Literal, Set
 from pydantic import BaseModel, Field
 from rich.console import Console
@@ -211,6 +214,7 @@ class Supervisor:
             "context": ":context",
             "refresh": ":refresh",
             "verify": ":verify",
+            "diff": ":diff",
             "new": ":new",
         }
         if lower in command_aliases:
@@ -288,6 +292,80 @@ class Supervisor:
         output = result.stdout or result.text
         return f"验证命令: {command}\n验证结果: {status}\n{output}"
 
+    def format_diff(self) -> str:
+        paths = self.changed_files or None
+        diff_text = self._git_diff(paths)
+        if paths:
+            untracked_diffs = self._format_untracked_changed_files(paths)
+            if untracked_diffs:
+                diff_text = "\n".join(part for part in [diff_text, "\n".join(untracked_diffs)] if part)
+        if diff_text.strip():
+            return diff_text
+        scope = "本轮变更文件" if paths else "当前工作区"
+        return f"{scope}没有可显示的 git diff"
+
+    def _git_diff(self, paths: list[str] | None = None) -> str:
+        command = ["git", "diff"]
+        if paths:
+            command.append("--")
+            command.extend(self._to_git_paths(paths))
+        result = self._run_git(command)
+        if result.returncode != 0:
+            return (result.stderr or "").strip()
+        return result.stdout or ""
+
+    def _run_git(self, command: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            command,
+            cwd=self.state_manager.project_root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+
+    def _to_git_paths(self, paths: list[str]) -> list[str]:
+        root = self.state_manager.project_root.resolve()
+        result: list[str] = []
+        for raw_path in paths:
+            path = Path(raw_path)
+            if not path.is_absolute():
+                result.append(raw_path)
+                continue
+            try:
+                result.append(str(path.resolve().relative_to(root)))
+            except ValueError:
+                result.append(str(path))
+        return result
+
+    def _format_untracked_changed_files(self, paths: list[str]) -> list[str]:
+        root = self.state_manager.project_root.resolve()
+        diffs: list[str] = []
+        for git_path in self._to_git_paths(paths):
+            path = root / git_path
+            if not path.exists() or not path.is_file() or self._is_git_tracked(git_path):
+                continue
+            try:
+                content = path.read_text(encoding="utf-8").splitlines(keepends=True)
+            except UnicodeDecodeError:
+                diffs.append(f"diff --git a/{git_path} b/{git_path}\n新增二进制或非 UTF-8 文件，无法显示文本 diff。\n")
+                continue
+            diffs.append(
+                "".join(
+                    difflib.unified_diff(
+                        [],
+                        content,
+                        fromfile="/dev/null",
+                        tofile=f"b/{git_path}",
+                    )
+                )
+            )
+        return diffs
+
+    def _is_git_tracked(self, git_path: str) -> bool:
+        result = self._run_git(["git", "ls-files", "--error-unmatch", "--", git_path])
+        return result.returncode == 0
+
     def list_tickets(self) -> str:
         if not self.tickets:
             return "当前没有 Ticket"
@@ -342,14 +420,14 @@ class Supervisor:
     def start_repl(self, model: str = "deepseek-v4-flash") -> None:
         self.console.print("[green]输入 exit 或 quit 退出会话。[/green]")
         self.console.print("[green]输入 /tickets 查看当前 Ticket 列表。[/green]")
-        self.console.print("[green]可用命令: /help, /tickets, /status, /trace, /context, /refresh, /verify, /new <描述>, exit[/green]")
+        self.console.print("[green]可用命令: /help, /tickets, /status, /trace, /context, /refresh, /diff, /verify, /new <描述>, exit[/green]")
         while True:
             user_input = self.normalize_repl_command(Prompt.ask("[bold cyan]DeepSeek>[/bold cyan]"))
             if user_input.lower() in {"exit", "quit"}:
                 break
             if user_input == ":help":
                 self.console.print(
-                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/verify - 运行最近一次建议验证命令\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
+                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/diff - 查看当前变更 diff\n/verify - 运行最近一次建议验证命令\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
                 )
                 continue
             if user_input == ":tickets":
@@ -370,6 +448,9 @@ class Supervisor:
                 continue
             if user_input == ":verify":
                 self.console.print(self.run_verification())
+                continue
+            if user_input == ":diff":
+                self.console.print(self.format_diff())
                 continue
             if user_input.startswith(":new "):
                 desc = user_input[5:].strip()

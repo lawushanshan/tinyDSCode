@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -133,6 +134,45 @@ def test_run_verification_executes_suggested_command(tmp_path: Path) -> None:
     assert seen[0].arguments["cwd"] == str(tmp_path)
 
 
+def test_format_diff_for_untracked_changed_file(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    target = tmp_path / "new_file.py"
+    target.write_text("def hello():\n    return 'hi'\n", encoding="utf-8")
+    supervisor.changed_files = [str(target)]
+
+    diff = supervisor.format_diff()
+
+    assert "--- /dev/null" in diff
+    assert f"+++ b/{target.name}" in diff
+    assert "+def hello():" in diff
+
+
+def test_format_diff_for_tracked_file(tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    target = tmp_path / "tracked.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.py"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    target.write_text("VALUE = 2\n", encoding="utf-8")
+
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["tracked.py"]
+
+    diff = supervisor.format_diff()
+
+    assert "diff --git" in diff
+    assert "-VALUE = 1" in diff
+    assert "+VALUE = 2" in diff
+
+
+def test_format_diff_handles_empty_subprocess_stdout(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git", "diff"], 0, None, None))
+
+    diff = supervisor.format_diff()
+
+    assert diff == "当前工作区没有可显示的 git diff"
+
+
 def test_normalize_repl_command_accepts_missing_colon() -> None:
     supervisor = Supervisor()
 
@@ -147,6 +187,7 @@ def test_normalize_repl_command_accepts_slash_commands() -> None:
 
     assert supervisor.normalize_repl_command("/verify") == ":verify"
     assert supervisor.normalize_repl_command(" /STATUS ") == ":status"
+    assert supervisor.normalize_repl_command("/diff") == ":diff"
     assert supervisor.normalize_repl_command("/new 测试任务") == ":new 测试任务"
     assert supervisor.normalize_repl_command("/new") == ":new"
 
