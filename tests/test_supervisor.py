@@ -133,6 +133,31 @@ def test_run_verification_executes_suggested_command(tmp_path: Path) -> None:
     assert seen[0].arguments["cwd"] == str(tmp_path)
 
 
+def test_normalize_repl_command_accepts_missing_colon() -> None:
+    supervisor = Supervisor()
+
+    assert supervisor.normalize_repl_command("verify") == ":verify"
+    assert supervisor.normalize_repl_command(" VERIFY ") == ":verify"
+    assert supervisor.normalize_repl_command("status") == ":status"
+    assert supervisor.normalize_repl_command("trace") == ":trace"
+
+
+def test_normalize_repl_command_accepts_slash_commands() -> None:
+    supervisor = Supervisor()
+
+    assert supervisor.normalize_repl_command("/verify") == ":verify"
+    assert supervisor.normalize_repl_command(" /STATUS ") == ":status"
+    assert supervisor.normalize_repl_command("/new 测试任务") == ":new 测试任务"
+    assert supervisor.normalize_repl_command("/new") == ":new"
+
+
+def test_normalize_repl_command_keeps_regular_tasks() -> None:
+    supervisor = Supervisor()
+
+    assert supervisor.normalize_repl_command("创建一个文件") == "创建一个文件"
+    assert supervisor.normalize_repl_command(":new 测试") == ":new 测试"
+
+
 def test_supervisor_initializes_project_context(tmp_path: Path) -> None:
     (tmp_path / "app.py").write_text("def app(): pass\n", encoding="utf-8")
 

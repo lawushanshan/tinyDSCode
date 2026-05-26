@@ -200,6 +200,32 @@ class Supervisor:
         self.ticket_counter += 1
         return f"T-{self.ticket_counter:03d}"
 
+    def normalize_repl_command(self, user_input: str) -> str:
+        stripped = user_input.strip()
+        lower = stripped.lower()
+        command_aliases = {
+            "help": ":help",
+            "tickets": ":tickets",
+            "status": ":status",
+            "trace": ":trace",
+            "context": ":context",
+            "refresh": ":refresh",
+            "verify": ":verify",
+            "new": ":new",
+        }
+        if lower in command_aliases:
+            return command_aliases[lower]
+        if lower.startswith("/"):
+            command_text = stripped[1:].strip()
+            command, _, rest = command_text.partition(" ")
+            canonical = command_aliases.get(command.lower())
+            if not canonical:
+                return stripped
+            if canonical == ":new":
+                return f"{canonical} {rest.strip()}" if rest.strip() else canonical
+            return canonical if not rest.strip() else stripped
+        return stripped
+
     def create_ticket(self, prompt: str) -> Ticket:
         ticket = Ticket(ticket_id=self._next_ticket_id(), description=prompt)
         ticket.status = "pending"
@@ -315,40 +341,40 @@ class Supervisor:
 
     def start_repl(self, model: str = "deepseek-v4-flash") -> None:
         self.console.print("[green]输入 exit 或 quit 退出会话。[/green]")
-        self.console.print("[green]输入 :tickets 查看当前 Ticket 列表。[/green]")
-        self.console.print("[green]可用命令: :help, :tickets, :status, :trace, :context, :refresh, :verify, :new <描述>, exit[/green]")
+        self.console.print("[green]输入 /tickets 查看当前 Ticket 列表。[/green]")
+        self.console.print("[green]可用命令: /help, /tickets, /status, /trace, /context, /refresh, /verify, /new <描述>, exit[/green]")
         while True:
-            user_input = Prompt.ask("[bold cyan]DeepSeek>[/bold cyan]")
-            if user_input.strip().lower() in {"exit", "quit"}:
+            user_input = self.normalize_repl_command(Prompt.ask("[bold cyan]DeepSeek>[/bold cyan]"))
+            if user_input.lower() in {"exit", "quit"}:
                 break
-            if user_input.strip() == ":help":
+            if user_input == ":help":
                 self.console.print(
-                    ":help - 显示帮助\n:tickets - 列出 Ticket\n:status - 当前 Ticket 状态\n:trace - 最近一次执行轨迹\n:context - 当前项目上下文\n:refresh - 刷新项目上下文\n:verify - 运行最近一次建议验证命令\n:new <描述> - 创建并执行新 Ticket\nexit - 退出"
+                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/verify - 运行最近一次建议验证命令\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
                 )
                 continue
-            if user_input.strip() == ":tickets":
+            if user_input == ":tickets":
                 self.console.print(self.list_tickets())
                 continue
-            if user_input.strip() == ":status":
+            if user_input == ":status":
                 self.console.print(self.format_status())
                 continue
-            if user_input.strip() == ":trace":
+            if user_input == ":trace":
                 self.console.print(self.format_trace())
                 continue
-            if user_input.strip() == ":context":
+            if user_input == ":context":
                 self.console.print(self.format_context())
                 continue
-            if user_input.strip() == ":refresh":
+            if user_input == ":refresh":
                 self.refresh_project_context()
                 self.console.print("[green]项目上下文已刷新[/green]")
                 continue
-            if user_input.strip() == ":verify":
+            if user_input == ":verify":
                 self.console.print(self.run_verification())
                 continue
-            if user_input.strip().startswith(":new "):
-                desc = user_input.strip()[5:].strip()
+            if user_input.startswith(":new "):
+                desc = user_input[5:].strip()
                 if not desc:
-                    self.console.print("请提供任务描述，例如: :new 修复 auth.ts")
+                    self.console.print("请提供任务描述，例如: /new 修复 auth.ts")
                     continue
                 try:
                     response = self.handle_prompt(desc, model=model)

@@ -69,17 +69,23 @@ deepseek-code repl
 
 | 命令 | 说明 |
 |------|------|
-| `:help` | 显示帮助信息 |
-| `:tickets` | 查看当前会话的所有 Ticket 及状态 |
-| `:status` | 查看当前正在执行的 Ticket 详情 |
-| `:new <描述>` | 创建并执行新 Ticket |
+| `/help` | 显示帮助信息 |
+| `/tickets` | 查看当前会话的所有 Ticket 及状态 |
+| `/status` | 查看当前正在执行的 Ticket 详情 |
+| `/trace` | 查看最近一次执行轨迹 |
+| `/context` | 查看当前项目上下文 |
+| `/refresh` | 刷新项目上下文 |
+| `/verify` | 运行最近一次建议验证命令 |
+| `/new <描述>` | 创建并执行新 Ticket |
 | `exit` / `quit` | 退出会话 |
+
+兼容旧输入形式：`:help`、`:tickets` 等冒号命令仍可使用；`help`、`tickets`、`verify` 等裸命令也会自动识别。
 
 直接输入任意文本也会当作任务执行：
 
 ```
 DeepSeek> 读取 src/deepseek_code/cli.py 的内容
-DeepSeek> :tickets
+DeepSeek> /tickets
 DeepSeek> exit
 ```
 
