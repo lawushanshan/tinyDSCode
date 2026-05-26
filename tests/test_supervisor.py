@@ -136,6 +136,29 @@ def test_suggest_verification_command_for_python_changes() -> None:
     assert supervisor.suggest_verification_command() == "pytest -q"
 
 
+def test_suggest_verification_command_for_changed_test_file(tmp_path: Path) -> None:
+    test_file = tmp_path / "tests" / "test_app.py"
+    test_file.parent.mkdir()
+    test_file.write_text("def test_app(): pass\n", encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = [str(test_file)]
+
+    assert supervisor.suggest_verification_command() == "pytest -q tests/test_app.py"
+
+
+def test_suggest_verification_command_for_matching_test_file(tmp_path: Path) -> None:
+    src_file = tmp_path / "src" / "app.py"
+    test_file = tmp_path / "tests" / "test_app.py"
+    src_file.parent.mkdir()
+    test_file.parent.mkdir()
+    src_file.write_text("def app(): pass\n", encoding="utf-8")
+    test_file.write_text("def test_app(): pass\n", encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = [str(src_file)]
+
+    assert supervisor.suggest_verification_command() == "pytest -q tests/test_app.py"
+
+
 def test_run_verification_without_changed_files() -> None:
     supervisor = Supervisor()
 

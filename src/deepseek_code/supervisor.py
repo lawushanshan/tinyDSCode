@@ -290,6 +290,21 @@ class Supervisor:
         return "\n".join(lines)
 
     def suggest_verification_command(self) -> str | None:
+        for raw_path in self.changed_files:
+            path = Path(raw_path)
+            if path.suffix != ".py":
+                continue
+
+            git_path = self._to_git_paths([raw_path])[0]
+            normalized = Path(git_path).as_posix()
+            if normalized.startswith("tests/") and Path(normalized).name.startswith("test_"):
+                return f"pytest -q {normalized}"
+
+            candidate = self.state_manager.project_root / "tests" / f"test_{path.stem}.py"
+            if candidate.exists():
+                candidate_path = candidate.relative_to(self.state_manager.project_root).as_posix()
+                return f"pytest -q {candidate_path}"
+
         if any(path.endswith(".py") for path in self.changed_files):
             return "pytest -q"
         return None

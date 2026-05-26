@@ -5,6 +5,7 @@ Project direction and current iteration are tracked in `ROADMAP.md`. Read it fir
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 后续请始终用中文回答我
 功能开发完成之后，请编写测试编码，测试通过之后，在进行下一步
+如果需要的话，也可以引导用户进行手动测试，确保功能没问题
 
 ## Project
 
