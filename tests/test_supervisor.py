@@ -266,6 +266,33 @@ def test_worker_on_step_rejects_disallowed_tool(tmp_path: Path) -> None:
     assert "工具被拒绝: read_file" in ticket.log[-1]
 
 
+def test_worker_on_step_rejects_write_file_for_existing_file(tmp_path: Path) -> None:
+    existing = tmp_path / "app.py"
+    existing.write_text("VALUE = 1\n", encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("修改 app.py")
+    tc = ToolCall(id="call_write", name="write_file", arguments={"path": str(existing), "content": "VALUE = 2\n"})
+
+    directive = supervisor._worker_on_step("before_tool_call", ticket=ticket, tool_call=tc)
+
+    assert directive.approved is False
+    assert directive.inject_message is not None
+    assert "apply_patch" in directive.inject_message
+    assert "工具被拒绝: write_file" in ticket.log[-1]
+
+
+def test_worker_on_step_allows_write_file_for_new_file(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("创建 app.py")
+    target = tmp_path / "app.py"
+    tc = ToolCall(id="call_write", name="write_file", arguments={"path": str(target), "content": "VALUE = 1\n"})
+
+    directive = supervisor._worker_on_step("before_tool_call", ticket=ticket, tool_call=tc)
+
+    assert directive.approved is True
+    assert "工具调用: write_file" in ticket.log[-1]
+
+
 def test_handle_prompt_honors_no_read_file_constraint(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     readme = tmp_path / "README.md"

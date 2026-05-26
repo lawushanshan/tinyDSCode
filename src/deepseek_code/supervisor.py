@@ -108,6 +108,20 @@ class Supervisor:
                         f"{reason} 请基于已提供的项目上下文直接回答，不要再调用该工具。"
                     ),
                 )
+            if tc and tc.name == "write_file" and self._path_exists(tc.arguments.get("path")):
+                path = tc.arguments.get("path")
+                reason = f"目标文件已存在: {path}。修改已有文件时请使用 apply_patch，避免整文件覆盖。"
+                if ticket:
+                    ticket.log.append(f"工具被拒绝: write_file - {reason}")
+                    ticket.updated_at = datetime.now(timezone.utc)
+                    self._persist_tickets()
+                return StepDirective(
+                    approved=False,
+                    inject_message=(
+                        f"{reason} 请先基于现有内容生成最小 unified diff，"
+                        "然后调用 apply_patch(path, patch_text)。"
+                    ),
+                )
             if tc and ticket:
                 args = tc.arguments
                 ticket.log.append(f"工具调用: {tc.name}({json.dumps(args, ensure_ascii=False)})")
@@ -202,6 +216,14 @@ class Supervisor:
     def _next_ticket_id(self) -> str:
         self.ticket_counter += 1
         return f"T-{self.ticket_counter:03d}"
+
+    def _path_exists(self, raw_path: object) -> bool:
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            return False
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = self.state_manager.project_root / path
+        return path.exists()
 
     def normalize_repl_command(self, user_input: str) -> str:
         stripped = user_input.strip()

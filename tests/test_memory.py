@@ -21,6 +21,7 @@ def test_build_system_prompt_includes_tool_descriptions() -> None:
     assert "run_shell" in system_content
     assert "apply_patch" in system_content
     assert "Ralph" in system_content
+    assert "修改已有文件时必须优先使用 apply_patch" in system_content
 
 
 def test_token_budget_trimming() -> None:

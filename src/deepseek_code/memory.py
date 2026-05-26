@@ -37,10 +37,14 @@ class MemoryManager:
             "## 工具使用\n"
             "你通过 function calling 使用工具。可用工具：\n"
             "- read_file(path): 读取文件内容\n"
-            "- write_file(path, content): 写入文件（自动创建父目录）\n"
+            "- write_file(path, content): 创建新文件并写入内容（自动创建父目录）\n"
             "- list_dir(path): 列出目录内容\n"
             "- run_shell(command, cwd?): 执行 shell 命令\n"
             "- apply_patch(path, patch_text): 应用 unified diff 补丁\n\n"
+            "## 编辑规则\n"
+            "- 创建新文件时可以使用 write_file\n"
+            "- 修改已有文件时必须优先使用 apply_patch，生成最小 unified diff\n"
+            "- 不要为了局部修改而用 write_file 覆盖整个已有文件\n\n"
             "## 输出格式\n"
             "- 需要执行操作时，调用相应工具\n"
             "- 任务完成后，返回可读的结果摘要\n"
@@ -91,8 +95,8 @@ class MemoryManager:
         system_prompt_tokens = self._estimate_tokens([{"role": "system", "content": self._build_system_prompt()}])
         summary_budget = 100
         budget = self.max_context_tokens - system_prompt_tokens - summary_budget
-        if budget < 100:
-            budget = 100
+        if budget < 0:
+            budget = 0
 
         trimmed: list[dict[str, str]] = []
         token_count = 0

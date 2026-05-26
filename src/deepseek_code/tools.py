@@ -243,7 +243,7 @@ def create_default_registry() -> ToolRegistry:
     ))
     registry.register(ToolDef(
         name="write_file",
-        description="写入文件内容，自动创建父目录",
+        description="创建新文件并写入内容，自动创建父目录；修改已有文件请使用 apply_patch",
         parameters=[
             ToolParam(name="path", type="string", description="文件路径"),
             ToolParam(name="content", type="string", description="要写入的内容"),
@@ -269,7 +269,7 @@ def create_default_registry() -> ToolRegistry:
     ))
     registry.register(ToolDef(
         name="apply_patch",
-        description="应用 unified diff 补丁到文件",
+        description="应用 unified diff 补丁到已有文件，适合局部修改",
         parameters=[
             ToolParam(name="path", type="string", description="文件路径"),
             ToolParam(name="patch_text", type="string", description="unified diff 补丁内容"),
