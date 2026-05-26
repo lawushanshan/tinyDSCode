@@ -93,6 +93,42 @@ def test_format_verification_suggestion_for_python_changes() -> None:
     assert "pytest -q" in suggestion
 
 
+def test_format_task_summary_with_changes_and_trace(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    target = tmp_path / "summary.py"
+    tc = ToolCall(id="call_write", name="write_file", arguments={"path": str(target), "content": "x = 1\n"})
+    supervisor.worker.llm_service = MagicMock()
+    supervisor.worker.llm_service.chat.side_effect = [
+        LLMResponse(content="write file", tool_calls=[tc]),
+        LLMResponse(content="done", tool_calls=None),
+    ]
+
+    ticket = supervisor.create_ticket("create summary file")
+    supervisor.start_ticket(ticket)
+    supervisor.worker.execute_ticket(ticket, model="mock", on_step=supervisor._worker_on_step)
+
+    summary = supervisor.format_task_summary()
+
+    assert "Task Summary" in summary
+    assert "Changed files:" in summary
+    assert str(target) in summary
+    assert "Suggested verification: pytest -q" in summary
+    assert "Trace summary:" in summary
+    assert "loop 1; tools=write_file" in summary
+    assert "loop 2; done=assistant_final" in summary
+
+
+def test_format_task_summary_without_changes() -> None:
+    supervisor = Supervisor()
+
+    summary = supervisor.format_task_summary()
+
+    assert "Task Summary" in summary
+    assert "Changed files: none" in summary
+    assert "Suggested verification: not required" in summary
+    assert "Trace summary:" not in summary
+
+
 def test_suggest_verification_command_for_python_changes() -> None:
     supervisor = Supervisor()
     supervisor.changed_files = ["src/app.py"]

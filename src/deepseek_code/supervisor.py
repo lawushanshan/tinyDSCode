@@ -294,6 +294,43 @@ class Supervisor:
             return "pytest -q"
         return None
 
+    def format_task_summary(self) -> str:
+        lines = ["\n\nTask Summary"]
+        if self.changed_files:
+            lines.append("Changed files:")
+            lines.extend(f"- {path}" for path in self.changed_files)
+        else:
+            lines.append("Changed files: none")
+
+        command = self.suggest_verification_command()
+        if command:
+            lines.append(f"Suggested verification: {command}")
+        elif self.changed_files:
+            lines.append("Suggested verification: manually inspect the changed files")
+        else:
+            lines.append("Suggested verification: not required")
+
+        trace = self.format_trace_summary()
+        if trace:
+            lines.append("Trace summary:")
+            lines.extend(f"- {line}" for line in trace)
+        return "\n".join(lines)
+
+    def format_trace_summary(self, max_steps: int = 5) -> list[str]:
+        steps = self.worker.last_steps[-max_steps:]
+        summary: list[str] = []
+        for step in steps:
+            parts = [f"loop {step.iteration}"]
+            if step.tool_calls:
+                tool_names = ", ".join(tc.name for tc in step.tool_calls)
+                parts.append(f"tools={tool_names}")
+            if step.done_reason:
+                parts.append(f"done={step.done_reason}")
+            elif step.assistant_content:
+                parts.append(f"assistant={_truncate(step.assistant_content, 80)}")
+            summary.append("; ".join(parts))
+        return summary
+
     def run_verification(self) -> str:
         command = self.suggest_verification_command()
         if not self.changed_files:
@@ -654,6 +691,7 @@ class Supervisor:
             self._transition(SupervisorState.REVIEWING)
             final_result = "\n\n".join(results) if results else "（无结果）"
             final_result += self.format_verification_suggestion()
+            final_result += self.format_task_summary()
             self.complete_ticket(parent_ticket, final_result)
             self.state_manager.save_audit_log(self.worker.harness.audit_log)
 

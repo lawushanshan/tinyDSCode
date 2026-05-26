@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+Project direction and current iteration are tracked in `ROADMAP.md`. Read it first in a new session: the product goal is to build a mini version of Claude Code, and the current priority is Iteration 1, a reliable single-task coding loop.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 后续请始终用中文回答我
 功能开发完成之后，请编写测试编码，测试通过之后，在进行下一步
