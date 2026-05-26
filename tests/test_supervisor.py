@@ -492,6 +492,26 @@ def test_plan_task_fallback_on_empty() -> None:
     assert plan == []
 
 
+def test_should_skip_planning_for_simple_file_edit() -> None:
+    supervisor = Supervisor()
+
+    assert supervisor._should_skip_planning("修改 scratch_demo.py，把默认参数从 World 改成 Codex") is True
+    assert supervisor._should_skip_planning("重构整个项目架构并修改 scratch_demo.py") is False
+
+
+def test_handle_prompt_skips_planning_for_simple_file_edit(tmp_path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.worker.execute_ticket = MagicMock(return_value="已完成")
+    supervisor.llm_service = MagicMock()
+
+    response = supervisor.handle_prompt("修改 scratch_demo.py，把默认参数从 World 改成 Codex", model="mock")
+
+    assert "已完成" in response
+    supervisor.llm_service.chat.assert_not_called()
+    assert len(supervisor.tickets) == 1
+    assert supervisor.worker.execute_ticket.call_args[0][0].description == "修改 scratch_demo.py，把默认参数从 World 改成 Codex"
+
+
 def test_handle_prompt_with_subtasks(tmp_path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     supervisor.worker.execute_ticket = lambda ticket, model, on_step=None: f"完成: {ticket.description}"

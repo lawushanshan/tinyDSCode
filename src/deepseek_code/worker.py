@@ -17,6 +17,8 @@ console = Console()
 MAX_CONSECUTIVE_NO_PROGRESS = 3
 MAX_CONSECUTIVE_IDENTICAL_TOOL_CALLS = 3
 PROGRESS_CHECK_INTERVAL = 5
+MUTATING_TOOLS = {"write_file", "apply_patch"}
+READ_ONLY_TOOLS = {"read_file", "list_dir", "search_files", "search_content"}
 
 
 def _truncate(text: str, max_len: int = 200) -> str:
@@ -159,7 +161,8 @@ class Worker:
                 if single_signature in successful_tool_signatures:
                     message = (
                         f"重复工具调用已跳过：{tc.name}({args_summary})。"
-                        "该操作已经成功执行过，请基于已有工具结果总结完成，不要重复调用。"
+                        "该操作已经成功执行过。请基于已有工具结果判断任务是否完成；"
+                        "如果目标已满足，请立即输出最终结果，不要继续调用工具。"
                     )
                     console.print(f"[yellow]⚠ {message}[/yellow]")
                     self.memory.append_tool_result(message)
@@ -186,11 +189,20 @@ class Worker:
                 step.tool_results.append(result)
                 if result.ok:
                     successful_tool_signatures.add(single_signature)
+                    if result.changed_files:
+                        successful_tool_signatures = {
+                            signature
+                            for signature in successful_tool_signatures
+                            if not any(signature.startswith(f"{tool}:") for tool in READ_ONLY_TOOLS)
+                        }
                 if not result.ok:
                     console.print(f"[red]✗ 工具失败:[/red] {_truncate(result.text, 150)}")
                 else:
                     console.print(f"[green]✓ 工具结果:[/green] {_truncate(result.text, 150)}")
-                self.memory.append_tool_result(f"工具执行结果：{result.text}")
+                result_message = f"工具执行结果：{result.text}"
+                if result.ok and tc.name in MUTATING_TOOLS:
+                    result_message += "\n文件变更已完成。请根据任务目标判断是否需要读取文件确认；如果目标已满足，请直接总结完成。"
+                self.memory.append_tool_result(result_message)
 
                 # 执行后汇报
                 if on_step:

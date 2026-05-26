@@ -522,6 +522,17 @@ class Supervisor:
         except (json.JSONDecodeError, TypeError):
             return []
 
+    def _should_skip_planning(self, prompt: str) -> bool:
+        normalized = prompt.lower()
+        edit_markers = ("修改", "改成", "替换", "rename", "change", "update", "replace")
+        file_markers = (".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".json", ".toml", ".yaml", ".yml", ".txt")
+        complex_markers = ("多个", "所有", "整个项目", "架构", "重构", "规划", "分析并", "生成测试", "运行测试")
+        return (
+            any(marker in normalized for marker in edit_markers)
+            and any(marker in normalized for marker in file_markers)
+            and not any(marker in normalized for marker in complex_markers)
+        )
+
     def _create_child_ticket(self, parent: Ticket, task_dict: dict[str, str]) -> Ticket:
         child = self.create_ticket(task_dict["description"])
         child.parent_ticket_id = parent.ticket_id
@@ -589,7 +600,7 @@ class Supervisor:
             self._transition(SupervisorState.PLANNING)
             parent_ticket = self.create_ticket(prompt)
 
-            sub_tasks = self.plan_task(prompt, model)
+            sub_tasks = [] if self._should_skip_planning(prompt) else self.plan_task(prompt, model)
             if len(sub_tasks) > 1:
                 child_tickets = [self._create_child_ticket(parent_ticket, t) for t in sub_tasks]
             else:

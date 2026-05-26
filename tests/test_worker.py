@@ -185,6 +185,57 @@ def test_repeated_successful_tool_call_is_skipped(tmp_path) -> None:
     assert worker.last_steps[-1].done_reason == "assistant_final"
 
 
+def test_file_change_allows_read_file_confirmation(tmp_path) -> None:
+    """文件变更后应允许重复读取同一文件确认最新状态"""
+    worker = _make_worker(tmp_path)
+    target = tmp_path / "demo.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+    read_tc = ToolCall(id="call_read", name="read_file", arguments={"path": str(target)})
+    patch_tc = ToolCall(
+        id="call_patch",
+        name="apply_patch",
+        arguments={
+            "path": str(target),
+            "patch_text": "--- a/demo.py\n+++ b/demo.py\n@@ -1,1 +1,1 @@\n-x = 1\n+x = 2\n",
+        },
+    )
+
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.side_effect = [
+        LLMResponse(content="读取文件", tool_calls=[read_tc]),
+        LLMResponse(content="修改文件", tool_calls=[patch_tc]),
+        LLMResponse(content="确认文件", tool_calls=[read_tc]),
+        LLMResponse(content="已完成", tool_calls=None),
+    ]
+
+    ticket = Ticket(ticket_id="T-012", description="修改并确认", max_loop_iterations=5)
+
+    with patch.object(worker.harness, "execute_tool_call_structured", wraps=worker.harness.execute_tool_call_structured) as wrapped:
+        result = worker.execute_ticket(ticket)
+
+    assert result == "已完成"
+    assert wrapped.call_count == 3
+    assert target.read_text(encoding="utf-8") == "x = 2\n"
+    assert worker.last_steps[2].tool_results[0].text == "x = 2\n"
+
+
+def test_mutating_tool_result_prompts_final_summary(tmp_path) -> None:
+    worker = _make_worker(tmp_path)
+    target = tmp_path / "demo.py"
+    tc = ToolCall(id="call_write", name="write_file", arguments={"path": str(target), "content": "x = 1\n"})
+
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.side_effect = [
+        LLMResponse(content="写入文件", tool_calls=[tc]),
+        LLMResponse(content="已完成", tool_calls=None),
+    ]
+
+    ticket = Ticket(ticket_id="T-013", description="写文件", max_loop_iterations=3)
+    worker.execute_ticket(ticket)
+
+    assert "如果目标已满足，请直接总结完成" in worker.memory.history[-2]["content"]
+
+
 def test_different_tool_calls_reset_counter(tmp_path) -> None:
     """不同的工具调用应重置重复计数器，不误终止"""
     worker = _make_worker(tmp_path)

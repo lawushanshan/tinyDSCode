@@ -1,4 +1,4 @@
-def hello(name: str = "Codex") -> str:
+def hello(name: str = "World") -> str:
     """返回问候语"""
     return f"Hello,ds code {name}!"
 
