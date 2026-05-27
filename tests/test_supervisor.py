@@ -1,4 +1,5 @@
 import subprocess
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -186,6 +187,77 @@ def test_suggest_verification_command_prefers_top_level_matching_test(tmp_path: 
     supervisor.changed_files = ["src/pkg/app.py"]
 
     assert supervisor.suggest_verification_command() == "pytest -q tests/test_app.py"
+
+
+def test_suggest_verification_command_for_node_project(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"test": "vitest run"}}),
+        encoding="utf-8",
+    )
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["src/app.ts"]
+
+    assert supervisor.suggest_verification_command() == "npm test"
+
+
+def test_suggest_verification_command_prefers_pnpm_for_node_project(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"test": "vitest run"}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "pnpm-lock.yaml").write_text("", encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["src/app.tsx"]
+
+    assert supervisor.suggest_verification_command() == "pnpm test"
+
+
+def test_suggest_verification_command_skips_node_without_test_script(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": {"build": "vite build"}}), encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["src/app.ts"]
+
+    assert supervisor.suggest_verification_command() is None
+
+
+def test_suggest_verification_command_for_go_project(tmp_path: Path) -> None:
+    (tmp_path / "go.mod").write_text("module example.com/app\n", encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["cmd/app/main.go"]
+
+    assert supervisor.suggest_verification_command() == "go test ./..."
+
+
+def test_suggest_verification_command_for_rust_project(tmp_path: Path) -> None:
+    (tmp_path / "Cargo.toml").write_text("[package]\nname = \"app\"\n", encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["src/lib.rs"]
+
+    assert supervisor.suggest_verification_command() == "cargo test"
+
+
+def test_suggest_verification_command_for_maven_project(tmp_path: Path) -> None:
+    (tmp_path / "pom.xml").write_text("<project></project>\n", encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["src/main/java/App.java"]
+
+    assert supervisor.suggest_verification_command() == "mvn test"
+
+
+def test_suggest_verification_command_for_gradle_project(tmp_path: Path) -> None:
+    (tmp_path / "build.gradle").write_text("plugins {}\n", encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["src/main/kotlin/App.kt"]
+
+    assert supervisor.suggest_verification_command() == "gradle test"
+
+
+def test_suggest_verification_command_for_dotnet_project(tmp_path: Path) -> None:
+    (tmp_path / "App.csproj").write_text("<Project></Project>\n", encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["Program.cs"]
+
+    assert supervisor.suggest_verification_command() == "dotnet test"
 
 
 def test_run_verification_without_changed_files() -> None:

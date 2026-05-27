@@ -319,7 +319,75 @@ class Supervisor:
 
         if any(path.endswith(".py") for path in self.changed_files):
             return "pytest -q"
+        project_command = self._suggest_project_verification_command()
+        if project_command:
+            return project_command
         return None
+
+    def _suggest_project_verification_command(self) -> str | None:
+        if self._has_changed_suffix({".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}):
+            node_command = self._suggest_node_test_command()
+            if node_command:
+                return node_command
+
+        if self._has_changed_suffix({".go"}) and self._project_file_exists("go.mod"):
+            return "go test ./..."
+
+        if self._has_changed_suffix({".rs"}) and self._project_file_exists("Cargo.toml"):
+            return "cargo test"
+
+        if self._has_changed_suffix({".java"}) and self._project_file_exists("pom.xml"):
+            return "mvn test"
+
+        if self._has_changed_suffix({".java", ".kt", ".kts"}) and (
+            self._project_file_exists("build.gradle")
+            or self._project_file_exists("build.gradle.kts")
+            or self._project_file_exists("gradlew")
+            or self._project_file_exists("gradlew.bat")
+        ):
+            return self._gradle_test_command()
+
+        if self._has_changed_suffix({".cs", ".fs", ".vb"}) and (
+            self._project_has_glob("*.sln")
+            or self._project_has_glob("*.csproj")
+            or self._project_has_glob("**/*.csproj")
+        ):
+            return "dotnet test"
+
+        return None
+
+    def _suggest_node_test_command(self) -> str | None:
+        package_json = self.state_manager.project_root / "package.json"
+        if not package_json.exists():
+            return None
+        try:
+            data = json.loads(package_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        scripts = data.get("scripts")
+        if not isinstance(scripts, dict) or not scripts.get("test"):
+            return None
+        if self._project_file_exists("pnpm-lock.yaml"):
+            return "pnpm test"
+        if self._project_file_exists("yarn.lock"):
+            return "yarn test"
+        return "npm test"
+
+    def _gradle_test_command(self) -> str:
+        if self._project_file_exists("gradlew.bat"):
+            return "gradlew.bat test"
+        if self._project_file_exists("gradlew"):
+            return "./gradlew test"
+        return "gradle test"
+
+    def _has_changed_suffix(self, suffixes: set[str]) -> bool:
+        return any(Path(path).suffix.lower() in suffixes for path in self.changed_files)
+
+    def _project_file_exists(self, name: str) -> bool:
+        return (self.state_manager.project_root / name).exists()
+
+    def _project_has_glob(self, pattern: str) -> bool:
+        return any(self.state_manager.project_root.glob(pattern))
 
     def format_task_summary(self) -> str:
         lines = ["\n\nTask Summary"]
