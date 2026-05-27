@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from deepseek_code.repo_map import RepoMapBuilder
 
@@ -66,3 +67,62 @@ def test_repo_map_prompt_contains_project_context(tmp_path: Path) -> None:
     assert "项目上下文" in prompt
     assert "mod.py" in prompt
     assert "functions=hello" in prompt
+
+
+def test_repo_map_detects_node_project_profile(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"test": "vitest run"}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "pnpm-lock.yaml").write_text("", encoding="utf-8")
+
+    repo_map = RepoMapBuilder(tmp_path).build()
+
+    assert "package.json" in repo_map.key_files
+    assert "JavaScript/TypeScript" in repo_map.profile.languages
+    assert repo_map.profile.package_managers == ["pnpm"]
+    assert repo_map.profile.test_commands == ["pnpm test"]
+    assert "项目画像" in repo_map.to_prompt()
+    assert "test_commands: pnpm test" in repo_map.to_prompt()
+
+
+def test_repo_map_skips_node_test_command_without_test_script(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"build": "vite build"}}),
+        encoding="utf-8",
+    )
+
+    repo_map = RepoMapBuilder(tmp_path).build()
+
+    assert "JavaScript/TypeScript" in repo_map.profile.languages
+    assert repo_map.profile.package_managers == ["npm"]
+    assert repo_map.profile.test_commands == []
+
+
+def test_repo_map_detects_go_and_rust_profiles(tmp_path: Path) -> None:
+    (tmp_path / "go.mod").write_text("module example.com/app\n", encoding="utf-8")
+    (tmp_path / "Cargo.toml").write_text("[package]\nname = \"app\"\n", encoding="utf-8")
+
+    repo_map = RepoMapBuilder(tmp_path).build()
+
+    assert "Go" in repo_map.profile.languages
+    assert "Rust" in repo_map.profile.languages
+    assert "go modules" in repo_map.profile.package_managers
+    assert "cargo" in repo_map.profile.package_managers
+    assert "go test ./..." in repo_map.profile.test_commands
+    assert "cargo test" in repo_map.profile.test_commands
+
+
+def test_repo_map_detects_gradle_wrapper_and_dotnet_profiles(tmp_path: Path) -> None:
+    (tmp_path / "build.gradle").write_text("plugins {}\n", encoding="utf-8")
+    (tmp_path / "gradlew").write_text("", encoding="utf-8")
+    (tmp_path / "App.csproj").write_text("<Project></Project>\n", encoding="utf-8")
+
+    repo_map = RepoMapBuilder(tmp_path).build()
+
+    assert "Java/Kotlin" in repo_map.profile.languages
+    assert ".NET" in repo_map.profile.languages
+    assert "gradle" in repo_map.profile.package_managers
+    assert "dotnet" in repo_map.profile.package_managers
+    assert "./gradlew test" in repo_map.profile.test_commands
+    assert "dotnet test" in repo_map.profile.test_commands
