@@ -66,7 +66,7 @@ class RepoMapBuilder:
             return repo_map
 
         repo_map.key_files = self._find_key_files()
-        python_paths = self._find_python_files()
+        python_paths = self._find_python_files(limit=self.max_python_files + 1)
         repo_map.truncated = len(python_paths) > self.max_python_files
         for path in python_paths[: self.max_python_files]:
             repo_map.python_files.append(self._summarize_python_file(path))
@@ -80,12 +80,28 @@ class RepoMapBuilder:
                 result.append(self._relative(path))
         return result
 
-    def _find_python_files(self) -> list[Path]:
+    def _find_python_files(self, limit: int | None = None) -> list[Path]:
         paths: list[Path] = []
-        for path in sorted(self.root.rglob("*.py")):
-            if self._is_excluded(path) or not path.is_file():
-                continue
-            paths.append(path)
+
+        def visit(directory: Path) -> bool:
+            try:
+                children = sorted(directory.iterdir(), key=lambda p: p.name)
+            except OSError:
+                return False
+
+            for child in children:
+                if child.is_dir():
+                    if child.name in _EXCLUDED_DIRS:
+                        continue
+                    if visit(child):
+                        return True
+                elif child.is_file() and child.suffix == ".py":
+                    paths.append(child)
+                    if limit is not None and len(paths) >= limit:
+                        return True
+            return False
+
+        visit(self.root)
         return paths
 
     def _is_excluded(self, path: Path) -> bool:

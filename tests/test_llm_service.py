@@ -28,6 +28,14 @@ def test_llm_response_no_tool_calls() -> None:
     assert resp.tool_calls is None
 
 
+def test_llm_service_creates_client_lazily() -> None:
+    with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}, clear=False):
+        service = LLMService(model="mock")
+
+    assert service._api_key == "test-key"
+    assert service._client is None
+
+
 def test_llm_service_malformed_tool_args_ignored() -> None:
     """LLM 返回的 tool call 参数 JSON 不完整时，应跳过而不崩溃"""
     service = LLMService(model="mock")

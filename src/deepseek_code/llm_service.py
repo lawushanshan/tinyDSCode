@@ -26,8 +26,6 @@ class LLMService:
         self._api_version = (env or {}).get("api_version") or os.getenv("DEEPSEEK_API_VERSION") or os.getenv("OPENAI_API_VERSION")
         self._api_type = (env or {}).get("api_type") or os.getenv("DEEPSEEK_API_TYPE") or os.getenv("OPENAI_API_TYPE")
         self._client = None
-        if self._api_key:
-            self._client = self._create_client()
 
     def _create_client(self):
         from openai import OpenAI
@@ -61,6 +59,9 @@ class LLMService:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
+
+        if self._client is None:
+            self._client = self._create_client()
 
         response = self._client.chat.completions.create(**kwargs)
         if not response.choices:

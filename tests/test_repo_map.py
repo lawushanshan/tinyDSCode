@@ -36,6 +36,28 @@ def test_repo_map_excludes_virtualenv_and_cache_dirs(tmp_path: Path) -> None:
     assert [item.path for item in repo_map.python_files] == ["kept.py"]
 
 
+def test_repo_map_prunes_excluded_dirs_during_scan(tmp_path: Path) -> None:
+    blocked = tmp_path / ".venv" / "deep" / "nested"
+    blocked.mkdir(parents=True)
+    (blocked / "ignored.py").write_text("def ignored(): pass\n", encoding="utf-8")
+    (tmp_path / "kept.py").write_text("def kept(): pass\n", encoding="utf-8")
+
+    repo_map = RepoMapBuilder(tmp_path, max_python_files=1).build()
+
+    assert repo_map.truncated is False
+    assert [item.path for item in repo_map.python_files] == ["kept.py"]
+
+
+def test_repo_map_marks_truncated_without_collecting_every_python_file(tmp_path: Path) -> None:
+    for index in range(3):
+        (tmp_path / f"file_{index}.py").write_text(f"def f_{index}(): pass\n", encoding="utf-8")
+
+    repo_map = RepoMapBuilder(tmp_path, max_python_files=2).build()
+
+    assert repo_map.truncated is True
+    assert [item.path for item in repo_map.python_files] == ["file_0.py", "file_1.py"]
+
+
 def test_repo_map_prompt_contains_project_context(tmp_path: Path) -> None:
     (tmp_path / "mod.py").write_text("def hello(): pass\n", encoding="utf-8")
 
