@@ -75,7 +75,7 @@ class Supervisor:
             load_state = state_root is not None
         self.state_manager = StateManager(root=state_root)
         self.tool_registry = create_default_registry()
-        self.harness = Harness(state_root=self.state_manager.root, tool_registry=self.tool_registry,
+        self.harness = Harness(state_root=self.state_manager.project_root, tool_registry=self.tool_registry,
                                interactive=interactive)
         self.memory = MemoryManager()
         self.refresh_project_context()

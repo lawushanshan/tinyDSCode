@@ -268,6 +268,12 @@ def test_supervisor_initializes_project_context(tmp_path: Path) -> None:
     assert "functions=app" in supervisor.memory.project_context
 
 
+def test_supervisor_configures_harness_with_project_root(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+
+    assert supervisor.harness.state_manager.project_root == tmp_path.resolve()
+
+
 def test_format_context_without_project_context() -> None:
     supervisor = Supervisor()
     supervisor.memory.set_project_context("")

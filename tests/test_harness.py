@@ -33,6 +33,48 @@ def test_file_actions_resolve_relative_paths_from_project_root(tmp_path: Path) -
     assert (tmp_path / "src" / "example.txt").read_text(encoding="utf-8") == "hello"
 
 
+def test_file_actions_reject_paths_outside_project_root(tmp_path: Path) -> None:
+    harness = Harness(state_root=str(tmp_path))
+    outside = tmp_path.parent / "outside.txt"
+
+    result_relative = harness.execute_tool_call_structured(
+        ToolCall(
+            id="call_escape_rel",
+            name="write_file",
+            arguments={"path": "../outside.txt", "content": "blocked"},
+        )
+    )
+    result_absolute = harness.execute_tool_call_structured(
+        ToolCall(
+            id="call_escape_abs",
+            name="write_file",
+            arguments={"path": str(outside), "content": "blocked"},
+        )
+    )
+
+    assert result_relative.ok is False
+    assert result_absolute.ok is False
+    assert "路径超出项目根目录" in result_relative.error
+    assert "路径超出项目根目录" in result_absolute.error
+    assert not outside.exists()
+
+
+def test_file_actions_allow_absolute_paths_inside_project_root(tmp_path: Path) -> None:
+    harness = Harness(state_root=str(tmp_path))
+    target = tmp_path / "inside.txt"
+
+    result = harness.execute_tool_call_structured(
+        ToolCall(
+            id="call_abs_inside",
+            name="write_file",
+            arguments={"path": str(target), "content": "ok"},
+        )
+    )
+
+    assert result.ok is True
+    assert target.read_text(encoding="utf-8") == "ok"
+
+
 def test_apply_patch_resolves_relative_path_from_project_root(tmp_path: Path) -> None:
     harness = Harness(state_root=str(tmp_path))
     target = tmp_path / "app.py"
@@ -195,6 +237,24 @@ def test_run_shell_resolves_relative_cwd_from_project_root(tmp_path: Path) -> No
 
     assert result.ok is True
     assert Path(result.stdout.strip()) == tmp_path / "pkg"
+
+
+def test_run_shell_rejects_cwd_outside_project_root(tmp_path: Path) -> None:
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry, interactive=False)
+    tc = ToolCall(
+        id="call_cwd_escape",
+        name="run_shell",
+        arguments={
+            "command": "python -c \"print('should not run')\"",
+            "cwd": "..",
+        },
+    )
+
+    result = harness.execute_tool_call_structured(tc)
+
+    assert result.ok is False
+    assert "路径超出项目根目录" in result.error
 
 
 def test_execute_tool_call_file_not_found_returns_error(tmp_path: Path) -> None:

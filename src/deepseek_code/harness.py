@@ -99,9 +99,13 @@ class Harness:
 
     def _resolve_project_path(self, raw_path: str) -> str:
         path = Path(raw_path)
-        if path.is_absolute():
-            return str(path)
-        return str(self.state_manager.project_root / path)
+        root = self.state_manager.project_root.resolve()
+        resolved = path.resolve() if path.is_absolute() else (root / path).resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise PermissionError(f"路径超出项目根目录: {raw_path}") from exc
+        return str(resolved)
 
     def _build_tool_result(self, tool_name: str, args: dict[str, Any], result_text: str) -> ToolResult:
         ok = not (
