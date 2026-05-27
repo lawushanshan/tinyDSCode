@@ -44,6 +44,8 @@ class ProjectProfile:
     languages: list[str] = field(default_factory=list)
     package_managers: list[str] = field(default_factory=list)
     test_commands: list[str] = field(default_factory=list)
+    entry_points: list[str] = field(default_factory=list)
+    scripts: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -59,7 +61,13 @@ class RepoMap:
         if self.key_files:
             lines.append("关键文件:")
             lines.extend(f"- {path}" for path in self.key_files)
-        if self.profile.languages or self.profile.package_managers or self.profile.test_commands:
+        if (
+            self.profile.languages
+            or self.profile.package_managers
+            or self.profile.test_commands
+            or self.profile.entry_points
+            or self.profile.scripts
+        ):
             lines.append("项目画像:")
             if self.profile.languages:
                 lines.append("- languages: " + ", ".join(self.profile.languages))
@@ -67,6 +75,10 @@ class RepoMap:
                 lines.append("- package_managers: " + ", ".join(self.profile.package_managers))
             if self.profile.test_commands:
                 lines.append("- test_commands: " + ", ".join(self.profile.test_commands))
+            if self.profile.entry_points:
+                lines.append("- entry_points: " + ", ".join(self.profile.entry_points))
+            if self.profile.scripts:
+                lines.append("- scripts: " + ", ".join(self.profile.scripts))
         if self.python_files:
             lines.append("Python 文件概览:")
             for item in self.python_files:
@@ -117,6 +129,7 @@ class RepoMapBuilder:
             profile.languages.append("Python")
             profile.package_managers.append("pip/pyproject")
             profile.test_commands.append("pytest -q")
+            profile.entry_points.extend(self._detect_python_entry_points())
 
         if self._exists("package.json"):
             profile.languages.append("JavaScript/TypeScript")
@@ -126,36 +139,45 @@ class RepoMapBuilder:
             test_command = self._detect_node_test_command(package_manager)
             if test_command:
                 profile.test_commands.append(test_command)
+            profile.entry_points.extend(self._detect_node_entry_points())
+            profile.scripts.extend(self._detect_node_scripts())
 
         if self._exists("go.mod"):
             profile.languages.append("Go")
             profile.package_managers.append("go modules")
             profile.test_commands.append("go test ./...")
+            profile.entry_points.extend(self._detect_go_entry_points())
 
         if self._exists("Cargo.toml"):
             profile.languages.append("Rust")
             profile.package_managers.append("cargo")
             profile.test_commands.append("cargo test")
+            profile.entry_points.extend(self._detect_rust_entry_points())
 
         if self._exists("pom.xml"):
             profile.languages.append("Java")
             profile.package_managers.append("maven")
             profile.test_commands.append("mvn test")
+            profile.entry_points.extend(self._detect_java_entry_points())
 
         if self._exists("build.gradle") or self._exists("build.gradle.kts"):
             if "Java" not in profile.languages:
                 profile.languages.append("Java/Kotlin")
             profile.package_managers.append("gradle")
             profile.test_commands.append(self._detect_gradle_test_command())
+            profile.entry_points.extend(self._detect_java_entry_points())
 
         if self._has_glob("*.sln") or self._has_glob("*.csproj") or self._has_glob("**/*.csproj"):
             profile.languages.append(".NET")
             profile.package_managers.append("dotnet")
             profile.test_commands.append("dotnet test")
+            profile.entry_points.extend(self._detect_dotnet_entry_points())
 
         profile.languages = self._dedupe(profile.languages)
         profile.package_managers = self._dedupe(profile.package_managers)
         profile.test_commands = self._dedupe(profile.test_commands)
+        profile.entry_points = self._dedupe(profile.entry_points)
+        profile.scripts = self._dedupe(profile.scripts)
         return profile
 
     def _detect_node_package_manager(self) -> str | None:
@@ -184,6 +206,79 @@ class RepoMapBuilder:
         if package_manager == "bun":
             return "bun test"
         return "npm test"
+
+    def _read_package_json(self) -> dict:
+        try:
+            data = json.loads((self.root / "package.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _detect_node_entry_points(self) -> list[str]:
+        data = self._read_package_json()
+        result: list[str] = []
+        for field_name in ("main", "module", "types"):
+            value = data.get(field_name)
+            if isinstance(value, str):
+                result.append(f"package.json#{field_name}: {value}")
+        for candidate in ("src/main.ts", "src/main.tsx", "src/index.ts", "src/index.tsx", "src/main.js", "src/index.js"):
+            if self._exists(candidate):
+                result.append(candidate)
+        return result[:8]
+
+    def _detect_node_scripts(self) -> list[str]:
+        data = self._read_package_json()
+        scripts = data.get("scripts")
+        if not isinstance(scripts, dict):
+            return []
+        preferred = ["dev", "start", "build", "test", "lint", "typecheck"]
+        result: list[str] = []
+        for name in preferred:
+            value = scripts.get(name)
+            if isinstance(value, str):
+                result.append(f"{name}: {value}")
+        return result
+
+    def _detect_python_entry_points(self) -> list[str]:
+        result: list[str] = []
+        for candidate in ("src", "app.py", "main.py", "__main__.py"):
+            if self._exists(candidate):
+                result.append(candidate)
+        for path in sorted(self.root.glob("*/__main__.py"))[:5]:
+            if not self._is_excluded(path):
+                result.append(self._relative(path))
+        return result[:8]
+
+    def _detect_go_entry_points(self) -> list[str]:
+        result: list[str] = []
+        for path in sorted(self.root.glob("cmd/*/main.go"))[:5]:
+            result.append(self._relative(path))
+        if self._exists("main.go"):
+            result.append("main.go")
+        return result[:8]
+
+    def _detect_rust_entry_points(self) -> list[str]:
+        result: list[str] = []
+        for candidate in ("src/main.rs", "src/lib.rs"):
+            if self._exists(candidate):
+                result.append(candidate)
+        return result
+
+    def _detect_java_entry_points(self) -> list[str]:
+        result: list[str] = []
+        for candidate in ("src/main/java", "src/main/kotlin"):
+            if self._exists(candidate):
+                result.append(candidate)
+        return result
+
+    def _detect_dotnet_entry_points(self) -> list[str]:
+        result: list[str] = []
+        for path in sorted(self.root.glob("*.sln"))[:3]:
+            result.append(self._relative(path))
+        for path in sorted(self.root.glob("**/*.csproj"))[:5]:
+            if not self._is_excluded(path):
+                result.append(self._relative(path))
+        return result[:8]
 
     def _detect_gradle_test_command(self) -> str:
         if self._exists("gradlew"):

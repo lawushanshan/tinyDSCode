@@ -71,10 +71,22 @@ def test_repo_map_prompt_contains_project_context(tmp_path: Path) -> None:
 
 def test_repo_map_detects_node_project_profile(tmp_path: Path) -> None:
     (tmp_path / "package.json").write_text(
-        json.dumps({"scripts": {"test": "vitest run"}}),
+        json.dumps({
+            "main": "dist/index.js",
+            "types": "dist/index.d.ts",
+            "scripts": {
+                "dev": "vite",
+                "build": "vite build",
+                "test": "vitest run",
+                "custom": "node scripts/custom.js",
+            },
+        }),
         encoding="utf-8",
     )
     (tmp_path / "pnpm-lock.yaml").write_text("", encoding="utf-8")
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "main.ts").write_text("export {}\n", encoding="utf-8")
 
     repo_map = RepoMapBuilder(tmp_path).build()
 
@@ -82,8 +94,17 @@ def test_repo_map_detects_node_project_profile(tmp_path: Path) -> None:
     assert "JavaScript/TypeScript" in repo_map.profile.languages
     assert repo_map.profile.package_managers == ["pnpm"]
     assert repo_map.profile.test_commands == ["pnpm test"]
+    assert "package.json#main: dist/index.js" in repo_map.profile.entry_points
+    assert "package.json#types: dist/index.d.ts" in repo_map.profile.entry_points
+    assert "src/main.ts" in repo_map.profile.entry_points
+    assert "dev: vite" in repo_map.profile.scripts
+    assert "build: vite build" in repo_map.profile.scripts
+    assert "test: vitest run" in repo_map.profile.scripts
+    assert all(not script.startswith("custom:") for script in repo_map.profile.scripts)
     assert "项目画像" in repo_map.to_prompt()
     assert "test_commands: pnpm test" in repo_map.to_prompt()
+    assert "entry_points:" in repo_map.to_prompt()
+    assert "scripts:" in repo_map.to_prompt()
 
 
 def test_repo_map_skips_node_test_command_without_test_script(tmp_path: Path) -> None:
@@ -102,6 +123,12 @@ def test_repo_map_skips_node_test_command_without_test_script(tmp_path: Path) ->
 def test_repo_map_detects_go_and_rust_profiles(tmp_path: Path) -> None:
     (tmp_path / "go.mod").write_text("module example.com/app\n", encoding="utf-8")
     (tmp_path / "Cargo.toml").write_text("[package]\nname = \"app\"\n", encoding="utf-8")
+    go_main = tmp_path / "cmd" / "server"
+    go_main.mkdir(parents=True)
+    (go_main / "main.go").write_text("package main\n", encoding="utf-8")
+    rust_src = tmp_path / "src"
+    rust_src.mkdir()
+    (rust_src / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
 
     repo_map = RepoMapBuilder(tmp_path).build()
 
@@ -111,12 +138,16 @@ def test_repo_map_detects_go_and_rust_profiles(tmp_path: Path) -> None:
     assert "cargo" in repo_map.profile.package_managers
     assert "go test ./..." in repo_map.profile.test_commands
     assert "cargo test" in repo_map.profile.test_commands
+    assert "cmd/server/main.go" in repo_map.profile.entry_points
+    assert "src/main.rs" in repo_map.profile.entry_points
 
 
 def test_repo_map_detects_gradle_wrapper_and_dotnet_profiles(tmp_path: Path) -> None:
     (tmp_path / "build.gradle").write_text("plugins {}\n", encoding="utf-8")
     (tmp_path / "gradlew").write_text("", encoding="utf-8")
     (tmp_path / "App.csproj").write_text("<Project></Project>\n", encoding="utf-8")
+    java_main = tmp_path / "src" / "main" / "java"
+    java_main.mkdir(parents=True)
 
     repo_map = RepoMapBuilder(tmp_path).build()
 
@@ -126,3 +157,19 @@ def test_repo_map_detects_gradle_wrapper_and_dotnet_profiles(tmp_path: Path) -> 
     assert "dotnet" in repo_map.profile.package_managers
     assert "./gradlew test" in repo_map.profile.test_commands
     assert "dotnet test" in repo_map.profile.test_commands
+    assert "src/main/java" in repo_map.profile.entry_points
+    assert "App.csproj" in repo_map.profile.entry_points
+
+
+def test_repo_map_detects_python_entry_points(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = \"app\"\n", encoding="utf-8")
+    (tmp_path / "main.py").write_text("def main(): pass\n", encoding="utf-8")
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__main__.py").write_text("print('run')\n", encoding="utf-8")
+
+    repo_map = RepoMapBuilder(tmp_path).build()
+
+    assert "Python" in repo_map.profile.languages
+    assert "main.py" in repo_map.profile.entry_points
+    assert "pkg/__main__.py" in repo_map.profile.entry_points
