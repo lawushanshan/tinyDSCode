@@ -212,6 +212,8 @@ class Harness:
                 raise PermissionError("已拒绝文件写入权限")
             from .tools import Tools
             resolved_path = self._resolve_project_path(path)
+            if Path(resolved_path).exists():
+                raise FileExistsError(f"目标文件已存在: {path}。修改已有文件请使用 apply_patch")
             Tools.write_file(resolved_path, content)
             return f"已写入 {path}"
 

@@ -76,6 +76,25 @@ def test_file_actions_allow_absolute_paths_inside_project_root(tmp_path: Path) -
     assert target.read_text(encoding="utf-8") == "ok"
 
 
+def test_write_file_rejects_existing_file_without_overwriting(tmp_path: Path) -> None:
+    harness = Harness(state_root=str(tmp_path))
+    target = tmp_path / "existing.txt"
+    target.write_text("original", encoding="utf-8")
+
+    result = harness.execute_tool_call_structured(
+        ToolCall(
+            id="call_existing_write",
+            name="write_file",
+            arguments={"path": "existing.txt", "content": "new content"},
+        )
+    )
+
+    assert result.ok is False
+    assert "目标文件已存在" in result.error
+    assert "apply_patch" in result.error
+    assert target.read_text(encoding="utf-8") == "original"
+
+
 def test_apply_patch_resolves_relative_path_from_project_root(tmp_path: Path) -> None:
     harness = Harness(state_root=str(tmp_path))
     target = tmp_path / "app.py"
