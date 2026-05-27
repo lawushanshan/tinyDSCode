@@ -226,7 +226,7 @@ class Tools:
         for p in Tools._iter_files(root, excludes):
             rel = p.relative_to(root)
             if Tools._path_matches_glob(rel, normalized_pattern):
-                matched.append(str(rel))
+                matched.append(rel.as_posix())
             if len(matched) >= 500:
                 matched.append("...（结果过多，已截断，请缩小搜索范围）")
                 break
@@ -348,7 +348,7 @@ class Tools:
         results: list[str] = []
         count = 0
         for file_path in Tools._iter_text_files(root, include=include, exclude=exclude):
-            rel = str(file_path.relative_to(root))
+            rel = file_path.relative_to(root).as_posix()
             try:
                 lines = file_path.read_text(encoding="utf-8", errors="ignore").splitlines()
             except (OSError, UnicodeDecodeError):

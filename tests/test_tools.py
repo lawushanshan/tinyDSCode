@@ -266,7 +266,7 @@ def test_search_files_preserves_glob_depth_semantics(tmp_path: Path) -> None:
     assert "a.py" in direct_result
     assert "sub" not in direct_result
     assert "a.py" in recursive_result
-    assert str(Path("sub") / "d.py") in recursive_result
+    assert "sub/d.py" in recursive_result
 
 
 def test_search_files_prunes_default_excluded_dirs(tmp_path: Path) -> None:
@@ -323,6 +323,17 @@ def test_search_content_with_include(tmp_path: Path) -> None:
     result = Tools.search_content("target_line", str(tmp_path), include="*.py")
     assert "code.py" in result
     assert "readme.txt" not in result
+
+
+def test_search_content_uses_posix_relative_paths(tmp_path: Path) -> None:
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "code.py").write_text("target_line\n", encoding="utf-8")
+
+    result = Tools.search_content("target_line", str(tmp_path), include="*.py")
+
+    assert "pkg/code.py:1:" in result
+    assert "pkg\\code.py" not in result
 
 
 def test_search_content_with_exclude(tmp_path: Path) -> None:
