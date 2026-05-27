@@ -212,6 +212,30 @@ def test_suggest_verification_command_prefers_pnpm_for_node_project(tmp_path: Pa
     assert supervisor.suggest_verification_command() == "pnpm test"
 
 
+def test_suggest_verification_command_prefers_bun_for_node_project(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"test": "bun test"}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "bun.lockb").write_text("", encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["src/app.ts"]
+
+    assert supervisor.suggest_verification_command() == "bun test"
+
+
+def test_suggest_verification_command_uses_npm_for_package_lock(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"test": "jest"}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "package-lock.json").write_text("{}", encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["src/app.js"]
+
+    assert supervisor.suggest_verification_command() == "npm test"
+
+
 def test_suggest_verification_command_skips_node_without_test_script(tmp_path: Path) -> None:
     (tmp_path / "package.json").write_text(json.dumps({"scripts": {"build": "vite build"}}), encoding="utf-8")
     supervisor = Supervisor(state_root=str(tmp_path))
@@ -250,6 +274,15 @@ def test_suggest_verification_command_for_gradle_project(tmp_path: Path) -> None
     supervisor.changed_files = ["src/main/kotlin/App.kt"]
 
     assert supervisor.suggest_verification_command() == "gradle test"
+
+
+def test_suggest_verification_command_prefers_gradle_wrapper(tmp_path: Path) -> None:
+    (tmp_path / "build.gradle").write_text("plugins {}\n", encoding="utf-8")
+    (tmp_path / "gradlew").write_text("", encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["src/main/java/App.java"]
+
+    assert supervisor.suggest_verification_command() == "./gradlew test"
 
 
 def test_suggest_verification_command_for_dotnet_project(tmp_path: Path) -> None:

@@ -371,13 +371,17 @@ class Supervisor:
             return "pnpm test"
         if self._project_file_exists("yarn.lock"):
             return "yarn test"
+        if self._project_file_exists("bun.lockb"):
+            return "bun test"
+        if self._project_file_exists("package-lock.json"):
+            return "npm test"
         return "npm test"
 
     def _gradle_test_command(self) -> str:
-        if self._project_file_exists("gradlew.bat"):
-            return "gradlew.bat test"
         if self._project_file_exists("gradlew"):
             return "./gradlew test"
+        if self._project_file_exists("gradlew.bat"):
+            return "gradlew.bat test"
         return "gradle test"
 
     def _has_changed_suffix(self, suffixes: set[str]) -> bool:
