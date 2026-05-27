@@ -100,6 +100,26 @@ def test_successful_tool_call_persists_audit_log_immediately(tmp_path: Path) -> 
     assert persisted[-1]["structured"]["changed_files"] == ["audit.txt"]
 
 
+def test_tool_call_is_persisted_before_action_runs(tmp_path: Path) -> None:
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry)
+    tc = ToolCall(id="call_start", name="write_file", arguments={"path": "pending.txt", "content": "data"})
+
+    def fail_after_audit(**kwargs):
+        persisted = harness.state_manager.load_audit_log()
+        assert [entry["action"] for entry in persisted] == ["tool_call"]
+        assert persisted[0]["tool"] == "write_file"
+        raise RuntimeError("stop")
+
+    harness.perform_action = fail_after_audit
+
+    result = harness.execute_tool_call_structured(tc)
+    persisted = harness.state_manager.load_audit_log()
+
+    assert result.ok is False
+    assert [entry["action"] for entry in persisted] == ["tool_call", "tool_error"]
+
+
 def test_execute_tool_call_structured_shell_error(tmp_path: Path) -> None:
     registry = create_default_registry()
     harness = Harness(state_root=str(tmp_path), tool_registry=registry, interactive=False)

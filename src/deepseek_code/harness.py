@@ -61,6 +61,7 @@ class Harness:
             "tool": tool_name,
             "arguments": args,
         })
+        self.state_manager.save_audit_log(self.audit_log)
         try:
             result = self.perform_action(action=tool_name, **args)
             result_text = str(result) if result is not None else "（无返回值）"
