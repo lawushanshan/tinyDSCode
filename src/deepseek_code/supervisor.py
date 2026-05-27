@@ -385,7 +385,7 @@ class Supervisor:
             command.extend(self._to_git_paths(paths))
         result = self._run_git(command)
         if result.returncode != 0:
-            return (result.stderr or "").strip()
+            return ""
         return result.stdout or ""
 
     def _run_git(self, command: list[str]) -> subprocess.CompletedProcess[str]:

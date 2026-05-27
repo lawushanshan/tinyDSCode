@@ -206,6 +206,29 @@ def test_format_diff_for_untracked_changed_file(tmp_path: Path) -> None:
     assert "+def hello():" in diff
 
 
+def test_format_diff_ignores_git_error_when_untracked_diff_exists(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    target = tmp_path / "new_file.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    supervisor.changed_files = ["new_file.py"]
+
+    def fake_run_git(command):
+        if command[:2] == ["git", "diff"]:
+            return subprocess.CompletedProcess(command, 128, "", "fatal: not a git repository")
+        if command[:2] == ["git", "ls-files"]:
+            return subprocess.CompletedProcess(command, 1, "", "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    supervisor._run_git = fake_run_git
+
+    diff = supervisor.format_diff()
+
+    assert "fatal:" not in diff
+    assert "--- /dev/null" in diff
+    assert "+++ b/new_file.py" in diff
+    assert "+VALUE = 1" in diff
+
+
 def test_format_diff_for_tracked_file(tmp_path: Path) -> None:
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
     target = tmp_path / "tracked.py"
