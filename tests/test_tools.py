@@ -304,6 +304,22 @@ def test_search_content_with_exclude(tmp_path: Path) -> None:
     assert "test.log" not in result
 
 
+def test_search_content_prunes_default_excluded_dirs(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("TARGET\n", encoding="utf-8")
+    venv_path = tmp_path / ".venv" / "deep" / "nested"
+    node_modules_path = tmp_path / "node_modules" / "deep" / "nested"
+    venv_path.mkdir(parents=True)
+    node_modules_path.mkdir(parents=True)
+    (venv_path / "ignored.py").write_text("TARGET_FROM_VENV\n", encoding="utf-8")
+    (node_modules_path / "ignored.py").write_text("TARGET_FROM_NODE_MODULES\n", encoding="utf-8")
+
+    result = Tools.search_content("TARGET", str(tmp_path))
+
+    assert "app.py" in result
+    assert "TARGET_FROM_VENV" not in result
+    assert "TARGET_FROM_NODE_MODULES" not in result
+
+
 def test_search_content_context_lines(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("line1\nline2 TARGET\nline3\nline4\n", encoding="utf-8")
     result = Tools.search_content("TARGET", str(tmp_path), context_lines=1)

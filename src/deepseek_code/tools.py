@@ -243,6 +243,31 @@ class Tools:
         return file_path.suffix.lower() not in Tools._BINARY_EXTENSIONS
 
     @staticmethod
+    def _iter_text_files(root: Path, include: str | None = None, exclude: str | None = None):
+        def visit(directory: Path):
+            try:
+                children = sorted(directory.iterdir(), key=lambda p: p.name)
+            except OSError:
+                return
+            for child in children:
+                if child.is_dir():
+                    if child.name in Tools._DEFAULT_EXCLUDES:
+                        continue
+                    yield from visit(child)
+                    continue
+                if not child.is_file():
+                    continue
+                if not Tools._is_text_file(child):
+                    continue
+                if include and not fnmatch.fnmatch(child.name, include):
+                    continue
+                if exclude and fnmatch.fnmatch(child.name, exclude):
+                    continue
+                yield child
+
+        yield from visit(root)
+
+    @staticmethod
     def search_content(
         pattern: str,
         path: str = ".",
@@ -261,19 +286,8 @@ class Tools:
             return f"无效的正则表达式: {e}"
         results: list[str] = []
         count = 0
-        for file_path in sorted(root.rglob("*")):
-            if not file_path.is_file():
-                continue
+        for file_path in Tools._iter_text_files(root, include=include, exclude=exclude):
             rel = str(file_path.relative_to(root))
-            parts = Path(rel).parts
-            if any(d in parts for d in Tools._DEFAULT_EXCLUDES if "/" not in d):
-                continue
-            if not Tools._is_text_file(file_path):
-                continue
-            if include and not fnmatch.fnmatch(file_path.name, include):
-                continue
-            if exclude and fnmatch.fnmatch(file_path.name, exclude):
-                continue
             try:
                 lines = file_path.read_text(encoding="utf-8", errors="ignore").splitlines()
             except (OSError, UnicodeDecodeError):
