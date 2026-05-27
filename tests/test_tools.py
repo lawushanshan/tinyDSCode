@@ -255,6 +255,36 @@ def test_search_files_default_excludes_git(tmp_path: Path) -> None:
     assert "b.py" not in result
 
 
+def test_search_files_preserves_glob_depth_semantics(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("a", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "d.py").write_text("d", encoding="utf-8")
+
+    direct_result = Tools.search_files("*.py", str(tmp_path))
+    recursive_result = Tools.search_files("**/*.py", str(tmp_path))
+
+    assert "a.py" in direct_result
+    assert "sub" not in direct_result
+    assert "a.py" in recursive_result
+    assert str(Path("sub") / "d.py") in recursive_result
+
+
+def test_search_files_prunes_default_excluded_dirs(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("app", encoding="utf-8")
+    venv_path = tmp_path / ".venv" / "deep" / "nested"
+    node_modules_path = tmp_path / "node_modules" / "deep" / "nested"
+    venv_path.mkdir(parents=True)
+    node_modules_path.mkdir(parents=True)
+    (venv_path / "ignored.py").write_text("ignored", encoding="utf-8")
+    (node_modules_path / "ignored.py").write_text("ignored", encoding="utf-8")
+
+    result = Tools.search_files("**/*.py", str(tmp_path))
+
+    assert "app.py" in result
+    assert ".venv" not in result
+    assert "node_modules" not in result
+
+
 def test_search_files_not_found(tmp_path: Path) -> None:
     result = Tools.search_files("**/*.rs", str(tmp_path))
     assert "未找到" in result

@@ -222,14 +222,10 @@ class Tools:
             return f"不允许搜索根目录: {path}，请指定具体的项目目录"
         excludes = set(exclude_patterns or []) | Tools._DEFAULT_EXCLUDES
         matched: list[str] = []
-        for p in sorted(root.glob(pattern)):
+        normalized_pattern = Tools._normalize_glob_pattern(pattern)
+        for p in Tools._iter_files(root, excludes):
             rel = p.relative_to(root)
-            skip = False
-            for exc in excludes:
-                if fnmatch.fnmatch(str(rel), exc) or fnmatch.fnmatch(rel.name, exc) or exc in rel.parts:
-                    skip = True
-                    break
-            if not skip and p.is_file():
+            if Tools._path_matches_glob(rel, normalized_pattern):
                 matched.append(str(rel))
             if len(matched) >= 500:
                 matched.append("...（结果过多，已截断，请缩小搜索范围）")
@@ -237,6 +233,71 @@ class Tools:
         if not matched:
             return f"未找到匹配 '{pattern}' 的文件"
         return "\n".join(matched)
+
+    @staticmethod
+    def _normalize_glob_pattern(pattern: str) -> str:
+        return pattern.replace("\\", "/").strip("/")
+
+    @staticmethod
+    def _is_excluded_path(rel: Path, excludes: set[str]) -> bool:
+        rel_posix = rel.as_posix()
+        for exc in excludes:
+            normalized = Tools._normalize_glob_pattern(exc)
+            if fnmatch.fnmatch(rel_posix, normalized):
+                return True
+            if fnmatch.fnmatch(rel.name, normalized):
+                return True
+            if normalized in rel.parts:
+                return True
+        return False
+
+    @staticmethod
+    def _iter_files(root: Path, excludes: set[str]):
+        def visit(directory: Path):
+            try:
+                children = sorted(directory.iterdir(), key=lambda p: p.name)
+            except OSError:
+                return
+            for child in children:
+                rel = child.relative_to(root)
+                if Tools._is_excluded_path(rel, excludes):
+                    continue
+                if child.is_dir():
+                    yield from visit(child)
+                    continue
+                if child.is_file():
+                    yield child
+
+        yield from visit(root)
+
+    @staticmethod
+    def _path_matches_glob(rel: Path, pattern: str) -> bool:
+        if not pattern:
+            return False
+
+        path_parts = rel.as_posix().split("/")
+        pattern_parts = pattern.split("/")
+
+        def match_from(pattern_index: int, path_index: int) -> bool:
+            if pattern_index == len(pattern_parts):
+                return path_index == len(path_parts)
+
+            part = pattern_parts[pattern_index]
+            if part == "**":
+                if pattern_index == len(pattern_parts) - 1:
+                    return True
+                for next_path_index in range(path_index, len(path_parts) + 1):
+                    if match_from(pattern_index + 1, next_path_index):
+                        return True
+                return False
+
+            if path_index >= len(path_parts):
+                return False
+            if not fnmatch.fnmatch(path_parts[path_index], part):
+                return False
+            return match_from(pattern_index + 1, path_index + 1)
+
+        return match_from(0, 0)
 
     @staticmethod
     def _is_text_file(file_path: Path) -> bool:
