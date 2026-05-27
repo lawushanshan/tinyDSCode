@@ -55,6 +55,41 @@ def test_apply_patch_multiple_hunks(tmp_path: Path) -> None:
     assert file_path.read_text(encoding="utf-8") == "a\nB\nc\nd\nE\n"
 
 
+def test_apply_patch_accepts_markdown_fenced_diff(tmp_path: Path) -> None:
+    file_path = tmp_path / "example.txt"
+    file_path.write_text("line1\nline2\n", encoding="utf-8")
+    patch = """```diff
+--- a/example.txt
++++ b/example.txt
+@@ -1,2 +1,2 @@
+ line1
+-line2
++line2 changed
+```"""
+
+    Tools.apply_patch(str(file_path), patch)
+
+    assert file_path.read_text(encoding="utf-8") == "line1\nline2 changed\n"
+
+
+def test_apply_patch_accepts_git_diff_preamble(tmp_path: Path) -> None:
+    file_path = tmp_path / "example.txt"
+    file_path.write_text("line1\nline2\n", encoding="utf-8")
+    patch = """diff --git a/example.txt b/example.txt
+index 1111111..2222222 100644
+--- a/example.txt
++++ b/example.txt
+@@ -1,2 +1,2 @@
+ line1
+-line2
++line2 changed
+"""
+
+    Tools.apply_patch(str(file_path), patch)
+
+    assert file_path.read_text(encoding="utf-8") == "line1\nline2 changed\n"
+
+
 def test_apply_patch_rejects_mismatched_context_without_writing(tmp_path: Path) -> None:
     file_path = tmp_path / "example.txt"
     original = "line1\nline2\nline3\n"

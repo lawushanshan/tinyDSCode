@@ -118,6 +118,7 @@ class Tools:
         if not file_path.exists():
             raise FileNotFoundError(f"文件不存在: {path}")
 
+        patch_text = Tools._strip_markdown_fence(patch_text)
         original_lines = file_path.read_text(encoding="utf-8").splitlines(keepends=True)
         patched_lines: list[str] = []
         patch_lines = patch_text.splitlines(keepends=False)
@@ -193,6 +194,16 @@ class Tools:
             raise ValueError("补丁不包含任何 hunk")
         patched_lines.extend(original_lines[line_index:])
         file_path.write_text("".join(patched_lines), encoding="utf-8")
+
+    @staticmethod
+    def _strip_markdown_fence(text: str) -> str:
+        stripped = text.strip()
+        if not stripped.startswith("```"):
+            return text
+        lines = stripped.splitlines()
+        if len(lines) >= 2 and lines[0].startswith("```") and lines[-1].strip() == "```":
+            return "\n".join(lines[1:-1])
+        return text
 
     _DEFAULT_EXCLUDES = {"__pycache__", ".git", "node_modules", ".venv", "venv", ".harness_state", "*.pyc"}
     _BINARY_EXTENSIONS = {".pyc", ".pyo", ".exe", ".dll", ".so", ".dylib", ".bin", ".png", ".jpg", ".jpeg", ".gif", ".zip", ".tar", ".gz", ".whl", ".egg"}
