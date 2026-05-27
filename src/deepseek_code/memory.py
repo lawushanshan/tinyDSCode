@@ -45,6 +45,10 @@ class MemoryManager:
             "- 创建新文件时可以使用 write_file\n"
             "- 修改已有文件时必须优先使用 apply_patch，生成最小 unified diff\n"
             "- 不要为了局部修改而用 write_file 覆盖整个已有文件\n\n"
+            "## 项目上下文使用\n"
+            "- 如果提供了 Repo Map / 项目画像，请优先利用其中的 languages、package_managers、entry_points、scripts、test_commands\n"
+            "- 编辑前先根据项目画像判断技术栈和入口点；不要默认项目一定是 Python\n"
+            "- 需要验证时，优先选择项目画像中的 test_commands，或与变更文件最相关的窄范围测试命令\n\n"
             "## 输出格式\n"
             "- 需要执行操作时，调用相应工具\n"
             "- 任务完成后，返回可读的结果摘要\n"
@@ -92,9 +96,14 @@ class MemoryManager:
         if len(self.history) <= self.max_history_items():
             return self.history.copy()
 
-        system_prompt_tokens = self._estimate_tokens([{"role": "system", "content": self._build_system_prompt()}])
+        system_messages = [{"role": "system", "content": self._build_system_prompt()}]
+        if self.project_context:
+            system_messages.append({"role": "system", "content": self.project_context})
+        system_prompt_tokens = self._estimate_tokens(system_messages)
         summary_budget = 100
         budget = self.max_context_tokens - system_prompt_tokens - summary_budget
+        if self.max_context_tokens < system_prompt_tokens + summary_budget:
+            budget = max(0, self.max_context_tokens // 4)
         if budget < 0:
             budget = 0
 
