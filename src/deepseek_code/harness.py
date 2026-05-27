@@ -119,6 +119,15 @@ class Harness:
             return self.DEFAULT_SHELL_TIMEOUT_SECONDS
         return min(timeout, self.MAX_SHELL_TIMEOUT_SECONDS)
 
+    def _to_project_relative_path(self, raw_path: str) -> str:
+        path = Path(raw_path)
+        root = self.state_manager.project_root.resolve()
+        resolved = path.resolve() if path.is_absolute() else (root / path).resolve()
+        try:
+            return resolved.relative_to(root).as_posix()
+        except ValueError:
+            return raw_path
+
     def _build_tool_result(self, tool_name: str, args: dict[str, Any], result_text: str) -> ToolResult:
         ok = not (
             result_text.startswith("[命令执行失败")
@@ -130,7 +139,7 @@ class Harness:
         if ok and tool_name in {"write_file", "apply_patch"}:
             path = args.get("path")
             if isinstance(path, str):
-                changed_files.append(path)
+                changed_files.append(self._to_project_relative_path(path))
 
         exit_code = None
         stdout = ""

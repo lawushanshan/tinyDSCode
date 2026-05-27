@@ -111,7 +111,7 @@ def test_format_task_summary_with_changes_and_trace(tmp_path: Path) -> None:
 
     assert "Task Summary" in summary
     assert "Changed files:" in summary
-    assert str(target) in summary
+    assert "summary.py" in summary
     assert "Suggested verification: pytest -q" in summary
     assert "Trace summary:" in summary
     assert "loop 1; tools=write_file" in summary
@@ -408,7 +408,7 @@ def test_handle_prompt_appends_verification_suggestion(tmp_path: Path) -> None:
     assert "已完成" in response
     assert "建议验证" in response
     assert "pytest -q" in response
-    assert str(target) in response
+    assert "generated.py" in response
 
 
 def test_state_transitions() -> None:

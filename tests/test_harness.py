@@ -144,7 +144,20 @@ def test_execute_tool_call_structured_write_file(tmp_path: Path) -> None:
     assert result.ok is True
     assert result.tool == "write_file"
     assert result.text == f"已写入 {file_path}"
-    assert result.changed_files == [str(file_path)]
+    assert result.changed_files == ["structured.txt"]
+    assert file_path.read_text(encoding="utf-8") == "data"
+
+
+def test_changed_files_are_project_relative_for_nested_absolute_path(tmp_path: Path) -> None:
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry)
+    file_path = tmp_path / "pkg" / "structured.txt"
+    tc = ToolCall(id="call_nested", name="write_file", arguments={"path": str(file_path), "content": "data"})
+
+    result = harness.execute_tool_call_structured(tc)
+
+    assert result.ok is True
+    assert result.changed_files == ["pkg/structured.txt"]
     assert file_path.read_text(encoding="utf-8") == "data"
 
 
