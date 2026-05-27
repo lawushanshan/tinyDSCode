@@ -203,7 +203,8 @@ class Harness:
             if not self.request_permission("shell", detail=command):
                 raise PermissionError("已拒绝 shell 执行权限")
             from .tools import Tools
-            return Tools.run_shell(command=command, cwd=cwd)
+            resolved_cwd = self._resolve_project_path(cwd or ".")
+            return Tools.run_shell(command=command, cwd=resolved_cwd)
 
         if action == "apply_patch":
             if path is None or patch_text is None:

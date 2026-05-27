@@ -129,6 +129,40 @@ def test_execute_tool_call_shell_error_returns_text(tmp_path: Path) -> None:
     assert isinstance(result, str)
 
 
+def test_run_shell_defaults_to_project_root(tmp_path: Path) -> None:
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry, interactive=False)
+    tc = ToolCall(
+        id="call_pwd",
+        name="run_shell",
+        arguments={"command": "python -c \"from pathlib import Path; print(Path.cwd())\""},
+    )
+
+    result = harness.execute_tool_call_structured(tc)
+
+    assert result.ok is True
+    assert Path(result.stdout.strip()) == tmp_path
+
+
+def test_run_shell_resolves_relative_cwd_from_project_root(tmp_path: Path) -> None:
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry, interactive=False)
+    (tmp_path / "pkg").mkdir()
+    tc = ToolCall(
+        id="call_pwd_pkg",
+        name="run_shell",
+        arguments={
+            "command": "python -c \"from pathlib import Path; print(Path.cwd())\"",
+            "cwd": "pkg",
+        },
+    )
+
+    result = harness.execute_tool_call_structured(tc)
+
+    assert result.ok is True
+    assert Path(result.stdout.strip()) == tmp_path / "pkg"
+
+
 def test_execute_tool_call_file_not_found_returns_error(tmp_path: Path) -> None:
     """文件不存在时 execute_tool_call 返回错误文本，不抛异常"""
     registry = create_default_registry()
