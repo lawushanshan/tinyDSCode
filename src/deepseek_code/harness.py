@@ -125,15 +125,25 @@ class Harness:
         stderr = ""
         error = None
         if tool_name == "run_shell":
-            match = re.match(
+            failure_match = re.match(
                 r"\[命令执行失败 \(退出码 (?P<code>-?\d+)\)\].*?\nstdout:\n(?P<stdout>.*?)\nstderr:\n(?P<stderr>.*)",
                 result_text,
                 re.DOTALL,
             )
-            if match:
-                exit_code = int(match.group("code"))
-                stdout = match.group("stdout")
-                stderr = match.group("stderr")
+            timeout_match = re.match(
+                r"\[命令执行超时 \((?P<seconds>\d+)s\)\].*?\nstdout:\n(?P<stdout>.*?)\nstderr:\n(?P<stderr>.*)",
+                result_text,
+                re.DOTALL,
+            )
+            if failure_match:
+                exit_code = int(failure_match.group("code"))
+                stdout = failure_match.group("stdout")
+                stderr = failure_match.group("stderr")
+                error = result_text
+            elif timeout_match:
+                exit_code = -1
+                stdout = timeout_match.group("stdout")
+                stderr = timeout_match.group("stderr")
                 error = result_text
             elif ok:
                 stdout = result_text

@@ -183,7 +183,7 @@ def test_execute_tool_call_structured_shell_timeout(tmp_path: Path) -> None:
         id="call_timeout",
         name="run_shell",
         arguments={
-            "command": "python -c \"import time; time.sleep(2)\"",
+            "command": "python -c \"import time; print('started', flush=True); time.sleep(2)\"",
             "timeout_seconds": 1,
         },
     )
@@ -193,6 +193,8 @@ def test_execute_tool_call_structured_shell_timeout(tmp_path: Path) -> None:
     assert result.ok is False
     assert result.tool == "run_shell"
     assert result.error == result.text
+    assert result.exit_code == -1
+    assert "started" in result.stdout
     assert "命令执行超时" in result.text
 
 

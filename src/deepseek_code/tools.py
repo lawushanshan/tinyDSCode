@@ -97,6 +97,10 @@ class Tools:
         except subprocess.TimeoutExpired as exc:
             stdout = exc.stdout or ""
             stderr = exc.stderr or ""
+            if isinstance(stdout, bytes):
+                stdout = stdout.decode(errors="replace")
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode(errors="replace")
             return (
                 f"[命令执行超时 ({timeout_seconds}s)] {command}\n"
                 f"stdout:\n{stdout}\n"
