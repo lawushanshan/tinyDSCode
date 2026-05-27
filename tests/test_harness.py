@@ -176,6 +176,26 @@ def test_execute_tool_call_structured_shell_error(tmp_path: Path) -> None:
     assert result.error == result.text
 
 
+def test_execute_tool_call_structured_shell_timeout(tmp_path: Path) -> None:
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry, interactive=False)
+    tc = ToolCall(
+        id="call_timeout",
+        name="run_shell",
+        arguments={
+            "command": "python -c \"import time; time.sleep(2)\"",
+            "timeout_seconds": 1,
+        },
+    )
+
+    result = harness.execute_tool_call_structured(tc)
+
+    assert result.ok is False
+    assert result.tool == "run_shell"
+    assert result.error == result.text
+    assert "命令执行超时" in result.text
+
+
 def test_execute_tool_call_read_file(tmp_path: Path) -> None:
     registry = create_default_registry()
     harness = Harness(state_root=str(tmp_path), tool_registry=registry)

@@ -156,6 +156,16 @@ def test_run_shell_success_no_output(tmp_path: Path) -> None:
     assert "命令执行成功" in result
 
 
+def test_run_shell_timeout_returns_error_text() -> None:
+    result = Tools.run_shell(
+        "python -c \"import time; time.sleep(2)\"",
+        timeout_seconds=1,
+    )
+
+    assert "命令执行超时" in result
+    assert "1s" in result
+
+
 def test_create_default_registry() -> None:
     registry = create_default_registry()
     assert registry.get("read_file") is not None

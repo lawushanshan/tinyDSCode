@@ -84,14 +84,24 @@ class Tools:
         return [str(child) for child in directory.iterdir()]
 
     @staticmethod
-    def run_shell(command: str, cwd: str | None = None) -> str:
-        result = subprocess.run(
-            command,
-            cwd=cwd,
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
+    def run_shell(command: str, cwd: str | None = None, timeout_seconds: int = 30) -> str:
+        try:
+            result = subprocess.run(
+                command,
+                cwd=cwd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout or ""
+            stderr = exc.stderr or ""
+            return (
+                f"[命令执行超时 ({timeout_seconds}s)] {command}\n"
+                f"stdout:\n{stdout}\n"
+                f"stderr:\n{stderr}"
+            )
         if result.returncode != 0:
             return f"[命令执行失败 (退出码 {result.returncode})] {command}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         if result.stdout:
@@ -306,8 +316,9 @@ def create_default_registry() -> ToolRegistry:
         parameters=[
             ToolParam(name="command", type="string", description="要执行的命令"),
             ToolParam(name="cwd", type="string", description="工作目录", required=False),
+            ToolParam(name="timeout_seconds", type="integer", description="命令超时秒数，默认 30", required=False),
         ],
-        handler=lambda command, cwd=None: Tools.run_shell(command, cwd),
+        handler=lambda command, cwd=None, timeout_seconds=30: Tools.run_shell(command, cwd, timeout_seconds),
     ))
     registry.register(ToolDef(
         name="apply_patch",

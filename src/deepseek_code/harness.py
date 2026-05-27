@@ -110,6 +110,7 @@ class Harness:
     def _build_tool_result(self, tool_name: str, args: dict[str, Any], result_text: str) -> ToolResult:
         ok = not (
             result_text.startswith("[命令执行失败")
+            or result_text.startswith("[命令执行超时")
             or result_text.startswith("[ERROR]")
             or result_text.startswith("[搜索失败]")
         )
@@ -168,6 +169,7 @@ class Harness:
         context_lines: int = 0,
         query: str | None = None,
         count: int = 5,
+        timeout_seconds: int = 30,
     ) -> str | None:
         if action == "read_file":
             if path is None:
@@ -210,7 +212,7 @@ class Harness:
                 raise PermissionError("已拒绝 shell 执行权限")
             from .tools import Tools
             resolved_cwd = self._resolve_project_path(cwd or ".")
-            return Tools.run_shell(command=command, cwd=resolved_cwd)
+            return Tools.run_shell(command=command, cwd=resolved_cwd, timeout_seconds=timeout_seconds)
 
         if action == "apply_patch":
             if path is None or patch_text is None:
