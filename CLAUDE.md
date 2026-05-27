@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 后续请始终用中文回答我
 功能开发完成之后，请编写测试编码，测试通过之后，在进行下一步
 如果需要的话，也可以引导用户进行手动测试，确保功能没问题
+函数注释或者是提示，使用中文，确保用户能够理解
 
 ## Project
 

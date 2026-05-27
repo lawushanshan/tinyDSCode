@@ -1,0 +1,139 @@
+<mxfile host="65bd71144e">
+    <diagram id="deepseek-code-architecture" name="DeepSeek Code Architecture">
+        <mxGraphModel dx="1049" dy="529" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1100" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" value="DeepSeek Code CLI 架构图" style="text;html=1;strokeColor=none;fillColor=none;fontSize=28;fontStyle=1;fontColor=#1F2937;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="420" y="30" width="760" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="subtitle" value="本地智能编码闭环：仓库上下文、Ticket 规划、工具执行、审计、验证与评测" style="text;html=1;strokeColor=none;fillColor=none;fontSize=14;fontColor=#4B5563;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="365" y="78" width="870" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane_user" value="用户入口层" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EFF6FF;strokeColor=#2563EB;fontStyle=1;fontColor=#1E3A8A;verticalAlign=top;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="130" width="260" height="800" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane_agent" value="Agent 编排层" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F0FDF4;strokeColor=#16A34A;fontStyle=1;fontColor=#14532D;verticalAlign=top;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="330" y="130" width="410" height="800" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane_runtime" value="执行与安全层" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF7ED;strokeColor=#EA580C;fontStyle=1;fontColor=#7C2D12;verticalAlign=top;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="770" y="130" width="360" height="800" as="geometry"/>
+                </mxCell>
+                <mxCell id="lane_external" value="外部与持久化系统" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F8FAFC;strokeColor=#64748B;fontStyle=1;fontColor=#334155;verticalAlign=top;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="1160" y="130" width="360" height="800" as="geometry"/>
+                </mxCell>
+                <mxCell id="cli" value="CLI 入口&#xa;src/deepseek_code/cli.py&#xa;&#xa;命令：run、repl、models、eval" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#111827;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="70" y="190" width="200" height="110" as="geometry"/>
+                </mxCell>
+                <mxCell id="repl" value="交互式 REPL&#xa;&#xa;/tickets /status /trace&#xa;/context /diff /verify" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#111827;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="70" y="330" width="200" height="115" as="geometry"/>
+                </mxCell>
+                <mxCell id="eval_cli" value="评测命令入口&#xa;&#xa;deepseek-code eval&#xa;按任务和模型配置执行评测" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DBEAFE;strokeColor=#2563EB;fontColor=#111827;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="70" y="620" width="200" height="105" as="geometry"/>
+                </mxCell>
+                <mxCell id="config" value="配置加载器&#xa;config.py&#xa;&#xa;.deepseek-code.json&#xa;环境变量 API Key&#xa;模型别名" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E0F2FE;strokeColor=#0284C7;fontColor=#0F172A;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="360" y="190" width="170" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="supervisor" value="Supervisor 调度器&#xa;supervisor.py&#xa;&#xa;状态机&#xa;Ticket 生命周期&#xa;任务规划与复盘&#xa;变更文件跟踪&#xa;验证命令建议" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DCFCE7;strokeColor=#16A34A;fontColor=#111827;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="555" y="180" width="190" height="155" as="geometry"/>
+                </mxCell>
+                <mxCell id="ticket" value="Ticket 任务模型&#xa;&#xa;pending / running&#xa;blocked / done / failed&#xa;&#xa;描述、结果、日志、时间戳" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ECFDF5;strokeColor=#10B981;fontColor=#111827;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="360" y="350" width="170" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="worker" value="Worker 执行器&#xa;worker.py&#xa;&#xa;Ralph 风格循环&#xa;观察 - 分析 - 决策 - 执行&#xa;&#xa;无进展保护&#xa;重复工具调用保护" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BBF7D0;strokeColor=#16A34A;fontColor=#111827;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="555" y="390" width="190" height="150" as="geometry"/>
+                </mxCell>
+                <mxCell id="memory" value="记忆与上下文&#xa;memory.py&#xa;&#xa;系统提示词&#xa;项目上下文&#xa;工作历史&#xa;简单裁剪与摘要" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ECFDF5;strokeColor=#10B981;fontColor=#111827;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="360" y="570" width="170" height="135" as="geometry"/>
+                </mxCell>
+                <mxCell id="repo_map" value="仓库地图&#xa;repo_map.py&#xa;&#xa;关键文件&#xa;Python 类 / 函数 / 导入&#xa;仓库提示词上下文" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ECFDF5;strokeColor=#10B981;fontColor=#111827;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="555" y="585" width="190" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="harness" value="Harness 安全执行层&#xa;harness.py&#xa;&#xa;权限门禁&#xa;结构化 ToolResult&#xa;审计日志&#xa;Shell 交互确认" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FED7AA;strokeColor=#EA580C;fontColor=#111827;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="805" y="220" width="200" height="145" as="geometry"/>
+                </mxCell>
+                <mxCell id="tools" value="工具注册与实现&#xa;tools.py&#xa;&#xa;read_file / write_file&#xa;apply_patch / list_dir&#xa;run_shell&#xa;search_files / search_content&#xa;web_search" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFEDD5;strokeColor=#F97316;fontColor=#111827;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="805" y="420" width="200" height="170" as="geometry"/>
+                </mxCell>
+                <mxCell id="verification" value="验证闭环&#xa;&#xa;suggest_verification_command()&#xa;/verify 执行建议命令&#xa;/diff 查看当前变更" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFEDD5;strokeColor=#F97316;fontColor=#111827;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="805" y="640" width="200" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="llm" value="LLM 服务&#xa;llm_service.py&#xa;&#xa;OpenAI 兼容 Chat API&#xa;DeepSeek / OpenAI API Key&#xa;Function Calling 工具协议" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E2E8F0;strokeColor=#64748B;fontColor=#111827;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="1200" y="190" width="210" height="130" as="geometry"/>
+                </mxCell>
+                <mxCell id="state" value="持久化状态&#xa;.harness_state/&#xa;&#xa;tickets.json&#xa;audit_log.json&#xa;supervisor.json" style="shape=cylinder3d;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#E2E8F0;strokeColor=#64748B;fontColor=#111827;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="1200" y="370" width="210" height="130" as="geometry"/>
+                </mxCell>
+                <mxCell id="project_files" value="项目工作区&#xa;&#xa;源码文件&#xa;测试文件&#xa;文档&#xa;Git 工作区" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1F5F9;strokeColor=#64748B;fontColor=#111827;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="1200" y="545" width="210" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="eval" value="评测系统&#xa;eval/&#xa;&#xa;YAML 任务加载&#xa;代码提取&#xa;临时测试执行器&#xa;报告与 pass@1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1F5F9;strokeColor=#64748B;fontColor=#111827;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="1200" y="710" width="210" height="145" as="geometry"/>
+                </mxCell>
+                <mxCell id="roadmap" value="演进目标&#xa;&#xa;1. 可靠的单任务编码闭环&#xa;2. 更强的项目理解能力&#xa;3. 更好的交互控制能力&#xa;4. 多 Worker / 专业角色分工&#xa;5. 更强沙箱、检查点、长期记忆、IDE 集成" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;fontColor=#111827;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="360" y="780" width="650" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_cli_supervisor" value="创建" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#2563EB;fontColor=#374151;" parent="1" source="cli" target="supervisor" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_repl_supervisor" value="交互任务与命令" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#2563EB;fontColor=#374151;" parent="1" source="repl" target="supervisor" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_config_cli" value="模型与 API 配置" style="endArrow=block;html=1;rounded=0;strokeColor=#0284C7;fontColor=#374151;" parent="1" source="config" target="cli" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_supervisor_ticket" value="创建 / 更新" style="endArrow=block;html=1;rounded=0;strokeColor=#16A34A;fontColor=#374151;" parent="1" source="supervisor" target="ticket" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_supervisor_worker" value="分派 Ticket" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#16A34A;fontColor=#374151;" parent="1" source="supervisor" target="worker" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_worker_memory" value="构造消息上下文" style="endArrow=block;html=1;rounded=0;strokeColor=#10B981;fontColor=#374151;" parent="1" source="worker" target="memory" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_repo_memory" value="注入项目上下文" style="endArrow=block;html=1;rounded=0;strokeColor=#10B981;fontColor=#374151;" parent="1" source="repo_map" target="memory" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_supervisor_repo" value="刷新项目上下文" style="endArrow=block;html=1;rounded=0;strokeColor=#10B981;fontColor=#374151;" parent="1" source="supervisor" target="repo_map" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_worker_llm" value="对话 + 工具协议" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#64748B;fontColor=#374151;" parent="1" source="worker" target="llm" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_llm_worker" value="助手回复 / 工具调用" style="endArrow=block;html=1;rounded=0;dashed=1;strokeColor=#64748B;fontColor=#374151;" parent="1" source="llm" target="worker" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_worker_harness" value="工具调用" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#EA580C;fontColor=#374151;" parent="1" source="worker" target="harness" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_harness_tools" value="执行动作" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#EA580C;fontColor=#374151;" parent="1" source="harness" target="tools" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_tools_workspace" value="读取 / 写入 / 补丁 / 搜索 / Shell" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#64748B;fontColor=#374151;" parent="1" source="tools" target="project_files" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_harness_state" value="审计日志" style="endArrow=block;html=1;rounded=0;strokeColor=#64748B;fontColor=#374151;" parent="1" source="harness" target="state" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_supervisor_state" value="Ticket + 调度器状态" style="endArrow=block;html=1;rounded=0;strokeColor=#64748B;fontColor=#374151;" parent="1" source="supervisor" target="state" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_supervisor_verification" value="变更文件" style="endArrow=block;html=1;rounded=0;strokeColor=#EA580C;fontColor=#374151;" parent="1" source="supervisor" target="verification" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_verification_tools" value="run_shell / git diff" style="endArrow=block;html=1;rounded=0;strokeColor=#EA580C;fontColor=#374151;" parent="1" source="verification" target="tools" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_eval_cli_eval" value="启动评测任务" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#2563EB;fontColor=#374151;" parent="1" source="eval_cli" target="eval" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_eval_supervisor" value="调用 handle_prompt()" style="endArrow=block;html=1;rounded=0;strokeColor=#64748B;fontColor=#374151;" parent="1" source="eval" target="supervisor" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_eval_project" value="提取生成代码并运行测试" style="endArrow=block;html=1;rounded=0;strokeColor=#64748B;fontColor=#374151;" parent="1" source="eval" target="project_files" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
