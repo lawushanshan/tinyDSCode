@@ -25,6 +25,9 @@ class ToolResult(BaseModel):
 
 
 class Harness:
+    DEFAULT_SHELL_TIMEOUT_SECONDS = 30
+    MAX_SHELL_TIMEOUT_SECONDS = 300
+
     def __init__(
         self,
         state_root: str | None = None,
@@ -106,6 +109,15 @@ class Harness:
         except ValueError as exc:
             raise PermissionError(f"路径超出项目根目录: {raw_path}") from exc
         return str(resolved)
+
+    def _normalize_timeout_seconds(self, value: Any) -> int:
+        try:
+            timeout = int(value)
+        except (TypeError, ValueError):
+            return self.DEFAULT_SHELL_TIMEOUT_SECONDS
+        if timeout <= 0:
+            return self.DEFAULT_SHELL_TIMEOUT_SECONDS
+        return min(timeout, self.MAX_SHELL_TIMEOUT_SECONDS)
 
     def _build_tool_result(self, tool_name: str, args: dict[str, Any], result_text: str) -> ToolResult:
         ok = not (
@@ -222,7 +234,8 @@ class Harness:
                 raise PermissionError("已拒绝 shell 执行权限")
             from .tools import Tools
             resolved_cwd = self._resolve_project_path(cwd or ".")
-            return Tools.run_shell(command=command, cwd=resolved_cwd, timeout_seconds=timeout_seconds)
+            timeout = self._normalize_timeout_seconds(timeout_seconds)
+            return Tools.run_shell(command=command, cwd=resolved_cwd, timeout_seconds=timeout)
 
         if action == "apply_patch":
             if path is None or patch_text is None:

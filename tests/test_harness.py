@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 
 from deepseek_code.harness import Harness
 from deepseek_code.tools import create_default_registry
@@ -277,6 +278,55 @@ def test_run_shell_rejects_cwd_outside_project_root(tmp_path: Path) -> None:
 
     assert result.ok is False
     assert "路径超出项目根目录" in result.error
+
+
+def test_run_shell_normalizes_invalid_timeout_seconds(tmp_path: Path) -> None:
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry, interactive=False)
+    seen: list[int] = []
+
+    def fake_run_shell(command, cwd=None, timeout_seconds=30):
+        seen.append(timeout_seconds)
+        return "ok"
+
+    with patch("deepseek_code.tools.Tools.run_shell", side_effect=fake_run_shell):
+        for raw_timeout in ("bad", 0, -5):
+            tc = ToolCall(
+                id=f"call_timeout_{raw_timeout}",
+                name="run_shell",
+                arguments={
+                    "command": "echo ok",
+                    "timeout_seconds": raw_timeout,
+                },
+            )
+            result = harness.execute_tool_call_structured(tc)
+            assert result.ok is True
+
+    assert seen == [30, 30, 30]
+
+
+def test_run_shell_clamps_large_timeout_seconds(tmp_path: Path) -> None:
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry, interactive=False)
+    seen: list[int] = []
+
+    def fake_run_shell(command, cwd=None, timeout_seconds=30):
+        seen.append(timeout_seconds)
+        return "ok"
+
+    with patch("deepseek_code.tools.Tools.run_shell", side_effect=fake_run_shell):
+        tc = ToolCall(
+            id="call_timeout_large",
+            name="run_shell",
+            arguments={
+                "command": "echo ok",
+                "timeout_seconds": 9999,
+            },
+        )
+        result = harness.execute_tool_call_structured(tc)
+
+    assert result.ok is True
+    assert seen == [300]
 
 
 def test_execute_tool_call_file_not_found_returns_error(tmp_path: Path) -> None:
