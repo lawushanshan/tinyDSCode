@@ -159,6 +159,35 @@ def test_suggest_verification_command_for_matching_test_file(tmp_path: Path) -> 
     assert supervisor.suggest_verification_command() == "pytest -q tests/test_app.py"
 
 
+def test_suggest_verification_command_for_src_package_test_file(tmp_path: Path) -> None:
+    src_file = tmp_path / "src" / "pkg" / "app.py"
+    test_file = tmp_path / "tests" / "pkg" / "test_app.py"
+    src_file.parent.mkdir(parents=True)
+    test_file.parent.mkdir(parents=True)
+    src_file.write_text("def app(): pass\n", encoding="utf-8")
+    test_file.write_text("def test_app(): pass\n", encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["src/pkg/app.py"]
+
+    assert supervisor.suggest_verification_command() == "pytest -q tests/pkg/test_app.py"
+
+
+def test_suggest_verification_command_prefers_top_level_matching_test(tmp_path: Path) -> None:
+    src_file = tmp_path / "src" / "pkg" / "app.py"
+    top_level_test = tmp_path / "tests" / "test_app.py"
+    package_test = tmp_path / "tests" / "pkg" / "test_app.py"
+    src_file.parent.mkdir(parents=True)
+    top_level_test.parent.mkdir(parents=True)
+    package_test.parent.mkdir(parents=True)
+    src_file.write_text("def app(): pass\n", encoding="utf-8")
+    top_level_test.write_text("def test_app(): pass\n", encoding="utf-8")
+    package_test.write_text("def test_app_pkg(): pass\n", encoding="utf-8")
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["src/pkg/app.py"]
+
+    assert supervisor.suggest_verification_command() == "pytest -q tests/test_app.py"
+
+
 def test_run_verification_without_changed_files() -> None:
     supervisor = Supervisor()
 

@@ -305,6 +305,18 @@ class Supervisor:
                 candidate_path = candidate.relative_to(self.state_manager.project_root).as_posix()
                 return f"pytest -q {candidate_path}"
 
+            parts = normalized.split("/")
+            if len(parts) > 2 and parts[0] == "src":
+                package_candidate = (
+                    self.state_manager.project_root
+                    / "tests"
+                    / Path(*parts[1:-1])
+                    / f"test_{path.stem}.py"
+                )
+                if package_candidate.exists():
+                    candidate_path = package_candidate.relative_to(self.state_manager.project_root).as_posix()
+                    return f"pytest -q {candidate_path}"
+
         if any(path.endswith(".py") for path in self.changed_files):
             return "pytest -q"
         return None
