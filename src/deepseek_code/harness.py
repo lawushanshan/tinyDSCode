@@ -90,6 +90,7 @@ class Harness:
             "result": result_text,
             "structured": structured.model_dump(),
         })
+        self.state_manager.save_audit_log(self.audit_log)
         return structured
 
     def execute_tool_call(self, tool_call: ToolCall) -> str:

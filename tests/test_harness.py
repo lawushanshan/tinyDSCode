@@ -86,6 +86,20 @@ def test_execute_tool_call_structured_write_file(tmp_path: Path) -> None:
     assert file_path.read_text(encoding="utf-8") == "data"
 
 
+def test_successful_tool_call_persists_audit_log_immediately(tmp_path: Path) -> None:
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry)
+    tc = ToolCall(id="call_audit", name="write_file", arguments={"path": "audit.txt", "content": "data"})
+
+    result = harness.execute_tool_call_structured(tc)
+    persisted = harness.state_manager.load_audit_log()
+
+    assert result.ok is True
+    assert [entry["action"] for entry in persisted] == ["tool_call", "tool_result"]
+    assert persisted[-1]["tool"] == "write_file"
+    assert persisted[-1]["structured"]["changed_files"] == ["audit.txt"]
+
+
 def test_execute_tool_call_structured_shell_error(tmp_path: Path) -> None:
     registry = create_default_registry()
     harness = Harness(state_root=str(tmp_path), tool_registry=registry, interactive=False)
