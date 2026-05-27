@@ -1,5 +1,6 @@
 from __future__ import annotations
 import re
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -94,6 +95,12 @@ class Harness:
     def execute_tool_call(self, tool_call: ToolCall) -> str:
         return self.execute_tool_call_structured(tool_call).text
 
+    def _resolve_project_path(self, raw_path: str) -> str:
+        path = Path(raw_path)
+        if path.is_absolute():
+            return str(path)
+        return str(self.state_manager.project_root / path)
+
     def _build_tool_result(self, tool_name: str, args: dict[str, Any], result_text: str) -> ToolResult:
         ok = not (
             result_text.startswith("[命令执行失败")
@@ -162,7 +169,8 @@ class Harness:
             if not self.request_permission("file", detail=f"读取 {path}"):
                 raise PermissionError("已拒绝文件读取权限")
             from .tools import Tools
-            content = Tools.read_file(path)
+            resolved_path = self._resolve_project_path(path)
+            content = Tools.read_file(resolved_path)
             if not content:
                 return f"（文件为空）{path}"
             return content
@@ -173,7 +181,8 @@ class Harness:
             if not self.request_permission("file", detail=f"写入 {path}"):
                 raise PermissionError("已拒绝文件写入权限")
             from .tools import Tools
-            Tools.write_file(path, content)
+            resolved_path = self._resolve_project_path(path)
+            Tools.write_file(resolved_path, content)
             return f"已写入 {path}"
 
         if action == "list_dir":
@@ -182,7 +191,8 @@ class Harness:
             if not self.request_permission("file", detail=f"列出 {path}"):
                 raise PermissionError("已拒绝目录读取权限")
             from .tools import Tools
-            entries = Tools.list_dir(path)
+            resolved_path = self._resolve_project_path(path)
+            entries = Tools.list_dir(resolved_path)
             if not entries:
                 return f"目录为空: {path}"
             return "\n".join(entries)
@@ -201,7 +211,8 @@ class Harness:
             if not self.request_permission("file", detail=f"补丁 {path}"):
                 raise PermissionError("已拒绝文件写入权限")
             from .tools import Tools
-            Tools.apply_patch(path, patch_text)
+            resolved_path = self._resolve_project_path(path)
+            Tools.apply_patch(resolved_path, patch_text)
             return f"已应用补丁到 {path}"
 
         if action == "search_files":
@@ -210,7 +221,8 @@ class Harness:
             if not self.request_permission("file", detail=f"搜索文件 {pattern}"):
                 raise PermissionError("已拒绝文件搜索权限")
             from .tools import Tools
-            return Tools.search_files(pattern, path or ".", exclude_patterns.split(",") if exclude_patterns else None)
+            resolved_path = self._resolve_project_path(path or ".")
+            return Tools.search_files(pattern, resolved_path, exclude_patterns.split(",") if exclude_patterns else None)
 
         if action == "search_content":
             if pattern is None:
@@ -218,7 +230,8 @@ class Harness:
             if not self.request_permission("file", detail=f"搜索内容 '{pattern}'"):
                 raise PermissionError("已拒绝内容搜索权限")
             from .tools import Tools
-            return Tools.search_content(pattern, path or ".", include, exclude, context_lines)
+            resolved_path = self._resolve_project_path(path or ".")
+            return Tools.search_content(pattern, resolved_path, include, exclude, context_lines)
 
         if action == "web_search":
             if query is None:

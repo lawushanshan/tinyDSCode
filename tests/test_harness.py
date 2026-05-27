@@ -18,6 +18,49 @@ def test_perform_action_write_and_read(tmp_path: Path) -> None:
     assert content == "hello"
 
 
+def test_file_actions_resolve_relative_paths_from_project_root(tmp_path: Path) -> None:
+    harness = Harness(state_root=str(tmp_path))
+
+    result = harness.perform_action(
+        action="write_file",
+        path="src/example.txt",
+        content="hello",
+    )
+    content = harness.perform_action(action="read_file", path="src/example.txt")
+
+    assert result == "已写入 src/example.txt"
+    assert content == "hello"
+    assert (tmp_path / "src" / "example.txt").read_text(encoding="utf-8") == "hello"
+
+
+def test_apply_patch_resolves_relative_path_from_project_root(tmp_path: Path) -> None:
+    harness = Harness(state_root=str(tmp_path))
+    target = tmp_path / "app.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+
+    result = harness.perform_action(
+        action="apply_patch",
+        path="app.py",
+        patch_text="@@ -1 +1 @@\n-VALUE = 1\n+VALUE = 2\n",
+    )
+
+    assert result == "已应用补丁到 app.py"
+    assert target.read_text(encoding="utf-8") == "VALUE = 2\n"
+
+
+def test_search_actions_resolve_relative_paths_from_project_root(tmp_path: Path) -> None:
+    harness = Harness(state_root=str(tmp_path))
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "app.py").write_text("TARGET = 1\n", encoding="utf-8")
+
+    files = harness.perform_action(action="search_files", path="pkg", pattern="*.py")
+    content = harness.perform_action(action="search_content", path="pkg", pattern="TARGET")
+
+    assert "app.py" in files
+    assert "TARGET" in content
+
+
 def test_execute_tool_call(tmp_path: Path) -> None:
     registry = create_default_registry()
     harness = Harness(state_root=str(tmp_path), tool_registry=registry)
