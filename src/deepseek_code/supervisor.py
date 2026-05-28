@@ -585,6 +585,15 @@ class Supervisor:
             return None
         return max(self.tickets, key=lambda ticket: ticket.updated_at)
 
+    def planned_tickets_for_report(self, ticket: Ticket) -> list[Ticket]:
+        children = [item for item in self.tickets if item.parent_ticket_id == ticket.ticket_id]
+        if children:
+            return children
+        if ticket.parent_ticket_id:
+            siblings = [item for item in self.tickets if item.parent_ticket_id == ticket.parent_ticket_id]
+            return siblings or [ticket]
+        return [ticket]
+
     def format_audit_summary(self, max_entries: int = 5) -> list[str]:
         audit_log = self.state_manager.load_audit_log()
         if not audit_log:
@@ -622,9 +631,15 @@ class Supervisor:
         lines.extend([
             f"Ticket: {ticket.ticket_id} ({ticket.status})",
             f"Description: {ticket.description}",
-            "",
-            "Changes",
         ])
+        plan_tickets = self.planned_tickets_for_report(ticket)
+        if len(plan_tickets) > 1:
+            lines.append("")
+            lines.append("Plan")
+            for index, item in enumerate(plan_tickets, 1):
+                lines.append(f"{index}. {item.ticket_id} ({item.status}) - {item.description}")
+
+        lines.extend(["", "Changes"])
         if self.changed_files:
             lines.extend(f"- {path}" for path in self.changed_files)
         else:

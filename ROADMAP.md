@@ -145,6 +145,7 @@ Implementation notes:
 - Prefer reusing existing `format_structured_output()`, `format_trace_summary()`, `format_checkpoint()`, `list_tickets()`, and persisted audit log data.
 - Do not introduce automatic commit, rollback, or verification execution in this iteration.
 - First `/report` version is read-only and covers no-task, successful-task, and failed/blocked-task paths.
+- `/report` shows child Ticket plans when a task was split into subtasks.
 
 ## Iteration 6: Persistent Session Notes
 

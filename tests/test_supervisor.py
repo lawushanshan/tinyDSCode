@@ -227,6 +227,41 @@ def test_format_report_for_failed_ticket_suggests_next_steps(tmp_path: Path) -> 
     assert "/rollback" in report
 
 
+def test_format_report_includes_child_ticket_plan(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    parent = supervisor.create_ticket("父任务")
+    first = supervisor._create_child_ticket(parent, {"description": "步骤A"})
+    second = supervisor._create_child_ticket(parent, {"description": "步骤B"})
+    parent.updated_at = datetime.now(timezone.utc)
+    first.updated_at = parent.updated_at
+    second.updated_at = parent.updated_at
+    second.status = "done"
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "Plan" in report
+    assert "1. T-002 (pending) - 步骤A" in report
+    assert "2. T-003 (done) - 步骤B" in report
+
+
+def test_format_report_for_child_ticket_includes_sibling_plan(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    parent = supervisor.create_ticket("父任务")
+    first = supervisor._create_child_ticket(parent, {"description": "步骤A"})
+    second = supervisor._create_child_ticket(parent, {"description": "步骤B"})
+    parent.updated_at = datetime(2025, 12, 31, tzinfo=timezone.utc)
+    first.updated_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    second.updated_at = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "Ticket: T-003 (pending)" in report
+    assert "1. T-002 (pending) - 步骤A" in report
+    assert "2. T-003 (pending) - 步骤B" in report
+
+
 def test_format_plan_summary_for_multiple_tickets() -> None:
     supervisor = Supervisor()
     first = supervisor.create_ticket("read target file")
