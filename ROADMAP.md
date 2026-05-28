@@ -146,6 +146,7 @@ Implementation notes:
 - Do not introduce automatic commit, rollback, or verification execution in this iteration.
 - First `/report` version is read-only and covers no-task, successful-task, and failed/blocked-task paths.
 - `/report` shows child Ticket plans when a task was split into subtasks.
+- `/report` can recover changed files from persisted Ticket results after process restart.
 
 ## Iteration 6: Persistent Session Notes
 

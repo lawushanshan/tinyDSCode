@@ -209,6 +209,29 @@ def test_format_report_for_successful_ticket_with_audit(tmp_path: Path) -> None:
     assert "apply_patch [ok]" in report
 
 
+def test_format_report_recovers_changed_files_from_persisted_result(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("持久化报告")
+    ticket.status = "done"
+    ticket.result = "\n".join([
+        "Result",
+        "[T-001] 完成",
+        "Changes",
+        "- src/app.py",
+        "Tests",
+        "- Suggested: pytest -q",
+    ])
+    supervisor._persist_tickets()
+
+    new_supervisor = Supervisor(state_root=str(tmp_path))
+    new_supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = new_supervisor.format_report()
+
+    assert "- src/app.py" in report
+    assert "Suggested: pytest -q" in report
+
+
 def test_format_report_for_failed_ticket_suggests_next_steps(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     ticket = supervisor.create_ticket("失败任务")

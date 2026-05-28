@@ -594,6 +594,26 @@ class Supervisor:
             return siblings or [ticket]
         return [ticket]
 
+    def changed_files_for_report(self, ticket: Ticket) -> list[str]:
+        if self.changed_files:
+            return list(self.changed_files)
+        if not ticket.result:
+            return []
+        lines = ticket.result.splitlines()
+        try:
+            start = lines.index("Changes") + 1
+        except ValueError:
+            return []
+        files: list[str] = []
+        for line in lines[start:]:
+            if line in {"Tests", "Notes", "Plan", "Checkpoint", "Trace", "Audit", "Next steps"}:
+                break
+            if line.startswith("- "):
+                path = line[2:].strip()
+                if path and path != "none":
+                    files.append(path)
+        return files
+
     def format_audit_summary(self, max_entries: int = 5) -> list[str]:
         audit_log = self.state_manager.load_audit_log()
         if not audit_log:
@@ -639,18 +659,24 @@ class Supervisor:
             for index, item in enumerate(plan_tickets, 1):
                 lines.append(f"{index}. {item.ticket_id} ({item.status}) - {item.description}")
 
+        report_changed_files = self.changed_files_for_report(ticket)
         lines.extend(["", "Changes"])
-        if self.changed_files:
-            lines.extend(f"- {path}" for path in self.changed_files)
+        if report_changed_files:
+            lines.extend(f"- {path}" for path in report_changed_files)
         else:
             lines.append("- none tracked in this session")
 
-        command = self.suggest_verification_command()
+        original_changed_files = self.changed_files
+        self.changed_files = report_changed_files
+        try:
+            command = self.suggest_verification_command()
+        finally:
+            self.changed_files = original_changed_files
         lines.append("")
         lines.append("Tests")
         if command:
             lines.append(f"- Suggested: {command}")
-        elif self.changed_files:
+        elif report_changed_files:
             lines.append("- Suggested: manually inspect the changed files")
         else:
             lines.append("- Suggested: not required")
