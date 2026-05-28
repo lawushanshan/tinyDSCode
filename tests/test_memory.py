@@ -91,6 +91,35 @@ def test_build_messages_includes_recent_decisions() -> None:
     assert "read file -> patch file" in messages[1]["content"]
 
 
+def test_build_messages_includes_session_notes() -> None:
+    memory = MemoryManager()
+    memory.set_session_notes([
+        {"category": "decision", "text": "编辑前必须先做定向上下文获取", "source": "manual"},
+    ])
+
+    messages = memory.build_messages()
+
+    assert len(messages) == 2
+    assert messages[1]["role"] == "system"
+    assert "Session Notes" in messages[1]["content"]
+    assert "[decision] 编辑前必须先做定向上下文获取 (manual)" in messages[1]["content"]
+
+
+def test_session_notes_are_compacted_for_context() -> None:
+    memory = MemoryManager()
+    memory.set_session_notes([
+        {"category": "decision", "text": f"note {index}", "source": f"T-{index:03d}"}
+        for index in range(15)
+    ])
+
+    messages = memory.build_messages()
+    notes_message = messages[1]["content"]
+
+    assert "note 2" not in notes_message
+    assert "note 7" in notes_message
+    assert "note 14" in notes_message
+
+
 def test_clear_working() -> None:
     memory = MemoryManager()
     memory.history.append({"role": "user", "content": "test"})

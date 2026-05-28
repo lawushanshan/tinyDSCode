@@ -10,6 +10,7 @@ class MemoryManager:
         self.max_context_tokens = max_context_tokens
         self.project_context: str = ""
         self.recent_decisions: list[str] = []
+        self.session_notes: list[str] = []
 
     def load_ticket(self, ticket: Any) -> None:
         self.history.append({"role": "user", "content": ticket.description})
@@ -32,6 +33,20 @@ class MemoryManager:
             return
         self.recent_decisions.append(entry)
         self.recent_decisions = self.recent_decisions[-12:]
+
+    def set_session_notes(self, notes: list[dict[str, Any]]) -> None:
+        compact: list[str] = []
+        for note in notes[-12:]:
+            if not isinstance(note, dict):
+                continue
+            text = str(note.get("text", "")).strip()
+            if not text:
+                continue
+            category = str(note.get("category", "general")).strip() or "general"
+            source = str(note.get("source", "")).strip()
+            suffix = f" ({source})" if source else ""
+            compact.append(f"[{category}] {text}{suffix}")
+        self.session_notes = compact
 
     def _build_system_prompt(self) -> str:
         return (
@@ -143,6 +158,9 @@ class MemoryManager:
         if self.recent_decisions:
             recent = "\n".join(f"- {item}" for item in self.recent_decisions[-8:])
             messages.append({"role": "system", "content": f"## Recent Decisions\n{recent}"})
+        if self.session_notes:
+            notes = "\n".join(f"- {item}" for item in self.session_notes[-8:])
+            messages.append({"role": "system", "content": f"## Session Notes\n{notes}"})
         trimmed_history = self._trim_history()
         messages.extend(trimmed_history)
         return messages

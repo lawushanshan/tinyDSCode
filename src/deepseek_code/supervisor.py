@@ -90,6 +90,7 @@ class Supervisor:
         self.changed_files: list[str] = []
         self.context_files_seen: set[str] = set()
         self.context_search_performed = False
+        self._sync_session_notes_to_memory()
         if load_state:
             self._load_state()
 
@@ -754,6 +755,10 @@ class Supervisor:
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
         self.state_manager.save_session_notes(notes)
+        self._sync_session_notes_to_memory()
+
+    def _sync_session_notes_to_memory(self) -> None:
+        self.memory.set_session_notes(self.state_manager.load_session_notes())
 
     def format_notes(self) -> str:
         notes = self.state_manager.load_session_notes()

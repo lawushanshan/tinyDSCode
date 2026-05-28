@@ -289,6 +289,39 @@ def test_record_and_format_session_notes(tmp_path: Path) -> None:
     assert "duplicate" not in notes
 
 
+def test_supervisor_loads_session_notes_into_memory(tmp_path: Path) -> None:
+    state_manager = StateManager(root=tmp_path)
+    state_manager.save_session_notes([
+        {
+            "category": "decision",
+            "text": "编辑前必须先做定向上下文获取",
+            "source": "manual",
+            "created_at": "2026-05-28T00:00:00+00:00",
+        }
+    ])
+
+    supervisor = Supervisor(state_root=str(tmp_path))
+    messages = supervisor.memory.build_messages()
+
+    assert any(
+        "Session Notes" in message["content"]
+        and "编辑前必须先做定向上下文获取" in message["content"]
+        for message in messages
+    )
+
+
+def test_record_session_note_syncs_memory(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+
+    supervisor.record_session_note("decision", "优先运行窄范围测试", source="manual")
+    messages = supervisor.memory.build_messages()
+
+    assert any(
+        "Session Notes" in message["content"] and "优先运行窄范围测试" in message["content"]
+        for message in messages
+    )
+
+
 def test_handle_prompt_records_plan_session_note(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     supervisor.worker.execute_ticket = lambda ticket, model, on_step=None: f"完成: {ticket.description}"
