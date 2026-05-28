@@ -534,6 +534,109 @@ def test_worker_on_step_allows_write_file_for_new_file(tmp_path: Path) -> None:
     assert "工具调用: write_file" in ticket.log[-1]
 
 
+def test_worker_on_step_rejects_apply_patch_without_context(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    target = tmp_path / "app.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    ticket = supervisor.create_ticket("修改 app.py")
+    tc = ToolCall(
+        id="call_patch",
+        name="apply_patch",
+        arguments={
+            "path": str(target),
+            "patch_text": "--- a/app.py\n+++ b/app.py\n@@ -1,1 +1,1 @@\n-VALUE = 1\n+VALUE = 2\n",
+        },
+    )
+
+    directive = supervisor._worker_on_step("before_tool_call", ticket=ticket, tool_call=tc)
+
+    assert directive.approved is False
+    assert directive.inject_message is not None
+    assert "先调用 read_file" in directive.inject_message
+    assert "工具被拒绝: apply_patch" in ticket.log[-1]
+
+
+def test_worker_on_step_allows_apply_patch_after_reading_target(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    target = tmp_path / "app.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    ticket = supervisor.create_ticket("修改 app.py")
+    read_tc = ToolCall(id="call_read", name="read_file", arguments={"path": str(target)})
+    patch_tc = ToolCall(
+        id="call_patch",
+        name="apply_patch",
+        arguments={
+            "path": str(target),
+            "patch_text": "--- a/app.py\n+++ b/app.py\n@@ -1,1 +1,1 @@\n-VALUE = 1\n+VALUE = 2\n",
+        },
+    )
+    read_result = ToolResult(tool="read_file", ok=True, text="VALUE = 1\n")
+
+    supervisor._worker_on_step(
+        "after_tool_call",
+        ticket=ticket,
+        tool_call=read_tc,
+        result=read_result.text,
+        tool_result=read_result,
+    )
+    directive = supervisor._worker_on_step("before_tool_call", ticket=ticket, tool_call=patch_tc)
+
+    assert directive.approved is True
+    assert "工具调用: apply_patch" in ticket.log[-1]
+
+
+def test_worker_on_step_allows_apply_patch_after_search(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    target = tmp_path / "app.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    ticket = supervisor.create_ticket("修改 app.py")
+    search_tc = ToolCall(id="call_search", name="search_content", arguments={"path": ".", "pattern": "VALUE"})
+    patch_tc = ToolCall(
+        id="call_patch",
+        name="apply_patch",
+        arguments={
+            "path": str(target),
+            "patch_text": "--- a/app.py\n+++ b/app.py\n@@ -1,1 +1,1 @@\n-VALUE = 1\n+VALUE = 2\n",
+        },
+    )
+    search_result = ToolResult(tool="search_content", ok=True, text="app.py:1:> VALUE = 1")
+
+    supervisor._worker_on_step(
+        "after_tool_call",
+        ticket=ticket,
+        tool_call=search_tc,
+        result=search_result.text,
+        tool_result=search_result,
+    )
+    directive = supervisor._worker_on_step("before_tool_call", ticket=ticket, tool_call=patch_tc)
+
+    assert directive.approved is True
+
+
+def test_start_ticket_clears_edit_context(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    target = tmp_path / "app.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    first = supervisor.create_ticket("读取 app.py")
+    second = supervisor.create_ticket("修改 app.py")
+    read_tc = ToolCall(id="call_read", name="read_file", arguments={"path": str(target)})
+    read_result = ToolResult(tool="read_file", ok=True, text="VALUE = 1\n")
+
+    supervisor._worker_on_step(
+        "after_tool_call",
+        ticket=first,
+        tool_call=read_tc,
+        result=read_result.text,
+        tool_result=read_result,
+    )
+    assert supervisor.context_files_seen
+
+    supervisor.start_ticket(second)
+
+    assert supervisor.context_files_seen == set()
+    assert supervisor.context_search_performed is False
+
+
 def test_handle_prompt_honors_no_read_file_constraint(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     readme = tmp_path / "README.md"

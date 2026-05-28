@@ -88,6 +88,8 @@ class Supervisor:
         self.state: SupervisorState = SupervisorState.IDLE
         self.current_constraints = TaskConstraints(disallowed_tools=set())
         self.changed_files: list[str] = []
+        self.context_files_seen: set[str] = set()
+        self.context_search_performed = False
         if load_state:
             self._load_state()
 
@@ -122,6 +124,20 @@ class Supervisor:
                         "然后调用 apply_patch(path, patch_text)。"
                     ),
                 )
+            if tc and tc.name == "apply_patch" and not self._has_edit_context(tc.arguments.get("path")):
+                path = tc.arguments.get("path")
+                reason = f"修改已有文件前需要先读取目标文件或执行定向搜索: {path}"
+                if ticket:
+                    ticket.log.append(f"工具被拒绝: apply_patch - {reason}")
+                    ticket.updated_at = datetime.now(timezone.utc)
+                    self._persist_tickets()
+                return StepDirective(
+                    approved=False,
+                    inject_message=(
+                        f"{reason}。请先调用 read_file(path) 查看目标文件当前内容，"
+                        "或使用 search_files/search_content 定位相关代码后，再生成最小 unified diff。"
+                    ),
+                )
             if tc and ticket:
                 args = tc.arguments
                 ticket.log.append(f"工具调用: {tc.name}({json.dumps(args, ensure_ascii=False)})")
@@ -138,6 +154,8 @@ class Supervisor:
                 for path in getattr(tool_result, "changed_files", []):
                     if path not in self.changed_files:
                         self.changed_files.append(path)
+                if getattr(tool_result, "ok", False) and tc:
+                    self._record_context_evidence(tc)
             is_error = "[ERROR]" in result or "命令执行失败" in result
             status = "失败" if is_error else "成功"
             if tc and ticket:
@@ -161,6 +179,25 @@ class Supervisor:
             )
 
         return StepDirective()
+
+    def _context_key(self, raw_path: object) -> str | None:
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            return None
+        return Path(self._to_git_paths([raw_path])[0]).as_posix()
+
+    def _record_context_evidence(self, tool_call: ToolCall) -> None:
+        if tool_call.name == "read_file":
+            key = self._context_key(tool_call.arguments.get("path"))
+            if key:
+                self.context_files_seen.add(key)
+        elif tool_call.name in {"search_files", "search_content"}:
+            self.context_search_performed = True
+
+    def _has_edit_context(self, raw_path: object) -> bool:
+        key = self._context_key(raw_path)
+        if key is None:
+            return False
+        return self.context_search_performed or key in self.context_files_seen
 
     def _transition(self, new_state: SupervisorState) -> None:
         allowed = VALID_TRANSITIONS.get(self.state, set())
@@ -268,6 +305,8 @@ class Supervisor:
         ticket.log.append("Ticket 开始执行")
         self.current_ticket = ticket
         self.memory.clear_working()
+        self.context_files_seen.clear()
+        self.context_search_performed = False
 
     def complete_ticket(self, ticket: Ticket, result: str) -> None:
         ticket.status = "done"

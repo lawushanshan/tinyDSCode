@@ -61,14 +61,20 @@ Implementation notes:
 
 Objective: make the agent choose better context and verification commands before editing.
 
-Status: partially implemented.
+Status: done for the current single-worker architecture.
 
 Planned work:
 
 - Extend RepoMap with package manager, test framework, entry point, and key config detection. (Done)
-- Prefer targeted search and file reads before editing.
+- Prefer targeted search and file reads before editing. (Done: `apply_patch` is rejected until the current Ticket has read the target file or performed a code search)
 - Suggest narrower verification commands such as a relevant test file when possible. (Done for common Python, Node, Go, Rust, Java, Gradle, and .NET projects)
 - Track recent user and agent decisions in a compact project memory. (Done)
+
+Implementation notes:
+
+- Supervisor tracks per-Ticket context evidence from successful `read_file`, `search_files`, and `search_content` calls.
+- `apply_patch` requires context evidence before it is approved, so the Worker is forced to inspect relevant code before editing.
+- Context evidence is cleared when each Ticket starts to avoid stale context leaking across subtasks.
 
 ## Iteration 3: Better Interactive Control
 
