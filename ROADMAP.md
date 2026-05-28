@@ -124,14 +124,14 @@ Implementation notes:
 
 Objective: make each coding session easy to review after the agent has acted, especially when a task touched multiple files or failed partway through.
 
-Status: started.
+Status: done for the current read-only session report scope.
 
 Planned work:
 
 - Add `/report` to summarize the latest session in one place: Ticket, plan, changed files, suggested tests, checkpoint status, and compact trace. (Done in first version)
 - Turn recent audit log entries into a human-readable tool activity summary. (Done in first version)
 - Include failure-oriented next steps when the latest Ticket is `failed` or `blocked`, such as `/trace`, `/diff`, `/continue <id>`, `/checkpoint`, and `/rollback`. (Done in first version)
-- Keep `/report` read-only. It should not run tests, mutate files, or execute git commands beyond the existing read-only status checks.
+- Keep `/report` read-only. It should not run tests, mutate files, or execute git commands beyond the existing read-only status checks. (Done)
 
 Definition of done:
 
