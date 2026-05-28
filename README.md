@@ -74,6 +74,7 @@ deepseek-code repl
 | `/ticket <id>` | 查看指定 Ticket 详情 |
 | `/status` | 查看当前正在执行的 Ticket 详情 |
 | `/trace` | 查看最近一次执行轨迹 |
+| `/report` | 查看最近一次任务复盘报告 |
 | `/context` | 查看当前项目上下文 |
 | `/refresh` | 刷新项目上下文 |
 | `/diff` | 查看当前变更 diff |

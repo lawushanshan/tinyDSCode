@@ -124,13 +124,13 @@ Implementation notes:
 
 Objective: make each coding session easy to review after the agent has acted, especially when a task touched multiple files or failed partway through.
 
-Status: planned.
+Status: started.
 
 Planned work:
 
-- Add `/report` to summarize the latest session in one place: Ticket, plan, changed files, suggested tests, checkpoint status, and compact trace.
-- Turn recent audit log entries into a human-readable tool activity summary.
-- Include failure-oriented next steps when the latest Ticket is `failed` or `blocked`, such as `/trace`, `/diff`, `/continue <id>`, `/checkpoint`, and `/rollback`.
+- Add `/report` to summarize the latest session in one place: Ticket, plan, changed files, suggested tests, checkpoint status, and compact trace. (Done in first version)
+- Turn recent audit log entries into a human-readable tool activity summary. (Done in first version)
+- Include failure-oriented next steps when the latest Ticket is `failed` or `blocked`, such as `/trace`, `/diff`, `/continue <id>`, `/checkpoint`, and `/rollback`. (Done in first version)
 - Keep `/report` read-only. It should not run tests, mutate files, or execute git commands beyond the existing read-only status checks.
 
 Definition of done:
@@ -144,6 +144,7 @@ Implementation notes:
 
 - Prefer reusing existing `format_structured_output()`, `format_trace_summary()`, `format_checkpoint()`, `list_tickets()`, and persisted audit log data.
 - Do not introduce automatic commit, rollback, or verification execution in this iteration.
+- First `/report` version is read-only and covers no-task, successful-task, and failed/blocked-task paths.
 
 ## Iteration 6: Persistent Session Notes
 

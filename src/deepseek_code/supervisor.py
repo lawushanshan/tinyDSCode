@@ -270,6 +270,7 @@ class Supervisor:
             "tickets": ":tickets",
             "status": ":status",
             "trace": ":trace",
+            "report": ":report",
             "context": ":context",
             "refresh": ":refresh",
             "verify": ":verify",
@@ -579,6 +580,96 @@ class Supervisor:
             lines.append("3. 当前工作区干净，不需要 rollback。")
         return "\n".join(lines)
 
+    def latest_ticket(self) -> Ticket | None:
+        if not self.tickets:
+            return None
+        return max(self.tickets, key=lambda ticket: ticket.updated_at)
+
+    def format_audit_summary(self, max_entries: int = 5) -> list[str]:
+        audit_log = self.state_manager.load_audit_log()
+        if not audit_log:
+            return []
+        summary: list[str] = []
+        for entry in audit_log[-max_entries:]:
+            action = str(entry.get("action", "unknown"))
+            if action == "tool_call":
+                tool = entry.get("tool", "unknown")
+                ok = entry.get("ok")
+                status = "ok" if ok else "failed"
+                summary.append(f"{tool} [{status}]")
+            elif action == "permission_request":
+                operation = entry.get("operation", "unknown")
+                approval = entry.get("approval", "unknown")
+                risk = entry.get("risk")
+                risk_text = f", risk={risk}" if risk else ""
+                summary.append(f"permission {operation}: {approval}{risk_text}")
+            elif action == "log":
+                summary.append(str(entry.get("message", "log")))
+            else:
+                summary.append(action)
+        return summary
+
+    def format_report(self) -> str:
+        ticket = self.latest_ticket()
+        lines = ["Session Report"]
+        if ticket is None:
+            lines.append("Ticket: none")
+            lines.append("Next steps:")
+            lines.append("- 创建或继续一个 Ticket 后再查看报告。")
+            lines.append("- 可先运行 /tickets 查看当前 Ticket 列表。")
+            return "\n".join(lines)
+
+        lines.extend([
+            f"Ticket: {ticket.ticket_id} ({ticket.status})",
+            f"Description: {ticket.description}",
+            "",
+            "Changes",
+        ])
+        if self.changed_files:
+            lines.extend(f"- {path}" for path in self.changed_files)
+        else:
+            lines.append("- none tracked in this session")
+
+        command = self.suggest_verification_command()
+        lines.append("")
+        lines.append("Tests")
+        if command:
+            lines.append(f"- Suggested: {command}")
+        elif self.changed_files:
+            lines.append("- Suggested: manually inspect the changed files")
+        else:
+            lines.append("- Suggested: not required")
+
+        lines.append("")
+        lines.append("Checkpoint")
+        checkpoint_lines = self.format_checkpoint().splitlines()
+        if checkpoint_lines and checkpoint_lines[0] == "Checkpoint":
+            checkpoint_lines = checkpoint_lines[1:]
+        lines.extend(checkpoint_lines or ["- unavailable"])
+
+        trace = self.format_trace_summary()
+        if trace:
+            lines.append("")
+            lines.append("Trace")
+            lines.extend(f"- {item}" for item in trace)
+
+        audit_summary = self.format_audit_summary()
+        if audit_summary:
+            lines.append("")
+            lines.append("Audit")
+            lines.extend(f"- {item}" for item in audit_summary)
+
+        if ticket.status in {"failed", "blocked"}:
+            lines.append("")
+            lines.append("Next steps")
+            lines.append("- /trace 查看失败前执行轨迹")
+            lines.append("- /diff 查看当前变更")
+            lines.append(f"- /continue {ticket.ticket_id} 继续执行")
+            lines.append("- /checkpoint 查看 git 状态")
+            lines.append("- /rollback 查看安全回滚指引")
+
+        return "\n".join(lines)
+
     def _git_diff(self, paths: list[str] | None = None) -> str:
         command = ["git", "diff"]
         if paths:
@@ -829,14 +920,14 @@ class Supervisor:
     def start_repl(self, model: str = "deepseek-v4-flash") -> None:
         self.console.print("[green]输入 exit 或 quit 退出会话。[/green]")
         self.console.print("[green]输入 /tickets 查看当前 Ticket 列表。[/green]")
-        self.console.print("[green]可用命令: /help, /tickets, /ticket <id>, /status, /trace, /context, /refresh, /diff, /verify, /checkpoint, /rollback, /revise <id> <描述>, /continue, /new <描述>, exit[/green]")
+        self.console.print("[green]可用命令: /help, /tickets, /ticket <id>, /status, /trace, /report, /context, /refresh, /diff, /verify, /checkpoint, /rollback, /revise <id> <描述>, /continue, /new <描述>, exit[/green]")
         while True:
             user_input = self.normalize_repl_command(Prompt.ask("[bold cyan]DeepSeek>[/bold cyan]"))
             if user_input.lower() in {"exit", "quit"}:
                 break
             if user_input == ":help":
                 self.console.print(
-                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/ticket <id> - 查看指定 Ticket 详情\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/diff - 查看当前变更 diff\n/verify - 运行最近一次建议验证命令\n/checkpoint - 查看当前 git 分支、HEAD 和工作区变更概况\n/rollback - 查看安全回滚指引，不自动执行回滚\n/revise <id> <描述> - 修改 pending/blocked/failed Ticket\n/continue - 继续执行下一个未完成 Ticket\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
+                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/ticket <id> - 查看指定 Ticket 详情\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/report - 查看最近一次任务复盘报告\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/diff - 查看当前变更 diff\n/verify - 运行最近一次建议验证命令\n/checkpoint - 查看当前 git 分支、HEAD 和工作区变更概况\n/rollback - 查看安全回滚指引，不自动执行回滚\n/revise <id> <描述> - 修改 pending/blocked/failed Ticket\n/continue - 继续执行下一个未完成 Ticket\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
                 )
                 continue
             if user_input == ":tickets":
@@ -869,6 +960,9 @@ class Supervisor:
                 continue
             if user_input == ":trace":
                 self.console.print(self.format_trace())
+                continue
+            if user_input == ":report":
+                self.console.print(self.format_report())
                 continue
             if user_input == ":context":
                 self.console.print(self.format_context())

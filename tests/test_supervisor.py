@@ -1,5 +1,6 @@
 import subprocess
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -173,6 +174,57 @@ def test_format_structured_output_sections(tmp_path: Path) -> None:
     assert "Tests" in output
     assert "Suggested: pytest -q" in output
     assert "建议验证" not in output
+
+
+def test_format_report_without_tickets() -> None:
+    supervisor = Supervisor()
+
+    report = supervisor.format_report()
+
+    assert "Session Report" in report
+    assert "Ticket: none" in report
+    assert "/tickets" in report
+
+
+def test_format_report_for_successful_ticket_with_audit(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("生成报告")
+    ticket.status = "done"
+    ticket.updated_at = datetime.now(timezone.utc)
+    supervisor.changed_files = ["src/app.py"]
+    supervisor.state_manager.save_audit_log([
+        {"action": "tool_call", "tool": "read_file", "ok": True},
+        {"action": "tool_call", "tool": "apply_patch", "ok": True},
+    ])
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "Session Report" in report
+    assert "Ticket: T-001 (done)" in report
+    assert "Description: 生成报告" in report
+    assert "- src/app.py" in report
+    assert "Suggested: pytest -q" in report
+    assert "Checkpoint" in report
+    assert "apply_patch [ok]" in report
+
+
+def test_format_report_for_failed_ticket_suggests_next_steps(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("失败任务")
+    ticket.status = "failed"
+    ticket.updated_at = datetime.now(timezone.utc)
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "Ticket: T-001 (failed)" in report
+    assert "Next steps" in report
+    assert "/trace" in report
+    assert "/diff" in report
+    assert "/continue T-001" in report
+    assert "/checkpoint" in report
+    assert "/rollback" in report
 
 
 def test_format_plan_summary_for_multiple_tickets() -> None:
@@ -539,6 +591,7 @@ def test_normalize_repl_command_accepts_missing_colon() -> None:
     assert supervisor.normalize_repl_command(" VERIFY ") == ":verify"
     assert supervisor.normalize_repl_command("status") == ":status"
     assert supervisor.normalize_repl_command("trace") == ":trace"
+    assert supervisor.normalize_repl_command("report") == ":report"
     assert supervisor.normalize_repl_command("checkpoint") == ":checkpoint"
     assert supervisor.normalize_repl_command("rollback") == ":rollback"
 
@@ -549,6 +602,7 @@ def test_normalize_repl_command_accepts_slash_commands() -> None:
     assert supervisor.normalize_repl_command("/verify") == ":verify"
     assert supervisor.normalize_repl_command(" /STATUS ") == ":status"
     assert supervisor.normalize_repl_command("/diff") == ":diff"
+    assert supervisor.normalize_repl_command("/report") == ":report"
     assert supervisor.normalize_repl_command("/checkpoint") == ":checkpoint"
     assert supervisor.normalize_repl_command("/rollback") == ":rollback"
     assert supervisor.normalize_repl_command("/ticket T-001") == ":ticket T-001"
