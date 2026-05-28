@@ -120,9 +120,59 @@ Implementation notes:
 - Final task notes suggest `/checkpoint` after multi-file changes.
 - `/rollback` is read-only guidance: it recommends `/checkpoint`, `/diff`, and manual `git restore`/`git clean -n` review steps without executing them.
 
+## Iteration 5: Session Report and Audit UX
+
+Objective: make each coding session easy to review after the agent has acted, especially when a task touched multiple files or failed partway through.
+
+Status: planned.
+
+Planned work:
+
+- Add `/report` to summarize the latest session in one place: Ticket, plan, changed files, suggested tests, checkpoint status, and compact trace.
+- Turn recent audit log entries into a human-readable tool activity summary.
+- Include failure-oriented next steps when the latest Ticket is `failed` or `blocked`, such as `/trace`, `/diff`, `/continue <id>`, `/checkpoint`, and `/rollback`.
+- Keep `/report` read-only. It should not run tests, mutate files, or execute git commands beyond the existing read-only status checks.
+
+Definition of done:
+
+- `deepseek-code repl` supports `/report`.
+- `/report` works when no task has run, after a successful task, and after a failed or blocked Ticket.
+- Report output is stable enough for tests and useful for copy/paste into an issue or commit note.
+- Focused tests cover report formatting, audit summary, and failure next-step guidance.
+
+Implementation notes:
+
+- Prefer reusing existing `format_structured_output()`, `format_trace_summary()`, `format_checkpoint()`, `list_tickets()`, and persisted audit log data.
+- Do not introduce automatic commit, rollback, or verification execution in this iteration.
+
+## Iteration 6: Persistent Session Notes
+
+Objective: preserve important decisions and user preferences across CLI sessions without requiring semantic search or a multi-worker architecture.
+
+Status: planned.
+
+Planned work:
+
+- Persist compact session notes under `.harness_state/`, for example `session_notes.json`.
+- Record durable facts such as completed iterations, architecture decisions, user preferences, recurring commands, and known manual test results.
+- Add `/notes` or `/memory` to inspect the persisted notes from REPL.
+- Load session notes into `MemoryManager` or Supervisor startup context so future tasks can reuse them.
+- Add simple pruning or deduplication so notes stay compact and readable.
+
+Definition of done:
+
+- Notes survive process restart.
+- New sessions can show or use prior durable notes without reading unrelated ticket logs manually.
+- Tests cover note persistence, deduplication/pruning, and REPL inspection.
+
+Implementation notes:
+
+- Start with structured JSON and deterministic summaries; do not add vector search or semantic retrieval yet.
+- Keep private/project-local notes in `.harness_state/` and exclude them from repository maps.
+
 ## Longer-Term Direction
 
 - Multi-worker or specialized worker roles: planner, coder, reviewer.
 - Stronger sandboxing and safer shell execution.
-- Long-term memory with semantic retrieval.
+- Long-term memory with semantic retrieval after persistent session notes are proven useful.
 - IDE/editor integration.
