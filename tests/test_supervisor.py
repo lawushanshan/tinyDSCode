@@ -139,6 +139,25 @@ def test_format_task_summary_without_changes() -> None:
     assert "Notes" not in summary
 
 
+def test_format_task_summary_suggests_checkpoint_for_multiple_changed_files() -> None:
+    supervisor = Supervisor()
+    supervisor.changed_files = ["src/app.py", "tests/test_app.py"]
+
+    summary = supervisor.format_task_summary()
+
+    assert "Notes" in summary
+    assert "建议运行 /checkpoint" in summary
+
+
+def test_format_task_summary_skips_checkpoint_hint_for_single_changed_file() -> None:
+    supervisor = Supervisor()
+    supervisor.changed_files = ["src/app.py"]
+
+    summary = supervisor.format_task_summary()
+
+    assert "建议运行 /checkpoint" not in summary
+
+
 def test_format_structured_output_sections(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     ticket = supervisor.create_ticket("结构化输出")

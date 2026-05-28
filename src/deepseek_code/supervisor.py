@@ -442,6 +442,8 @@ class Supervisor:
             lines.append("- Suggested: not required")
 
         notes = self.format_trace_summary()
+        if len(self.changed_files) > 1:
+            notes.append("多文件变更，建议运行 /checkpoint 查看当前 git 状态")
         if notes:
             lines.append("")
             lines.append("Notes")

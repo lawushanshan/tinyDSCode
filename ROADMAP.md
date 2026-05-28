@@ -110,13 +110,14 @@ Status: started.
 Planned work:
 
 - Show a read-only checkpoint summary of branch, HEAD, and working tree changes. (Done: `/checkpoint`)
-- Add optional checkpoint guidance before risky or multi-file changes.
+- Add optional checkpoint guidance before risky or multi-file changes. (Done for multi-file final output notes)
 - Add rollback guidance that explains safe manual options without running destructive git commands automatically.
 
 Implementation notes:
 
 - `/checkpoint` is read-only and runs `git branch --show-current`, `git rev-parse --short HEAD`, and `git status --short`.
 - The checkpoint command reports non-git directories clearly instead of failing with raw git errors.
+- Final task notes suggest `/checkpoint` after multi-file changes.
 
 ## Longer-Term Direction
 

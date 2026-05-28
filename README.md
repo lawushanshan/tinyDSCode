@@ -95,6 +95,7 @@ DeepSeek> exit
 ```
 
 任务完成后会按固定结构输出 `Result`、`Plan`、`Changes`、`Tests` 和 `Notes`，便于快速查看执行结果、变更文件、建议验证命令和最近执行轨迹。
+如果一次任务修改了多个文件，`Notes` 会提示运行 `/checkpoint` 查看当前 git 状态。
 
 ### 工具能力
 
