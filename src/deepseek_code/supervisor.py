@@ -415,6 +415,14 @@ class Supervisor:
             lines.extend(f"- {line}" for line in trace)
         return "\n".join(lines)
 
+    def format_plan_summary(self, tasks: list[Ticket]) -> str:
+        if len(tasks) <= 1:
+            return ""
+        lines = ["\n\nPlan"]
+        for index, ticket in enumerate(tasks, 1):
+            lines.append(f"{index}. {ticket.description}")
+        return "\n".join(lines)
+
     def format_trace_summary(self, max_steps: int = 5) -> list[str]:
         steps = self.worker.last_steps[-max_steps:]
         summary: list[str] = []
@@ -741,14 +749,21 @@ class Supervisor:
                 child_tickets = [self._create_child_ticket(parent_ticket, t) for t in sub_tasks]
             else:
                 child_tickets = [parent_ticket]
+            if len(child_tickets) > 1:
+                self.memory.record_decision(
+                    "plan",
+                    " -> ".join(ticket.description for ticket in child_tickets),
+                )
 
             pending = list(child_tickets)
+            executed_tickets: list[Ticket] = []
             results = []
             supervisor_iteration = 0
 
             while pending and supervisor_iteration < MAX_SUPERVISOR_ITERATIONS:
                 supervisor_iteration += 1
                 ticket = pending.pop(0)
+                executed_tickets.append(ticket)
 
                 self._transition(SupervisorState.DISPATCHING)
                 self.start_ticket(ticket)
@@ -767,6 +782,7 @@ class Supervisor:
 
                     if eval_action.action == "skip_remaining":
                         parent_ticket.log.append(f"跳过剩余任务: {eval_action.reason}")
+                        self.memory.record_decision("skip_remaining", eval_action.reason)
                         pending.clear()
 
                     elif eval_action.action == "add_tasks" and eval_action.new_tasks:
@@ -774,9 +790,14 @@ class Supervisor:
                             new_ticket = self._create_child_ticket(parent_ticket, t)
                             pending.append(new_ticket)
                         parent_ticket.log.append(f"追加 {len(eval_action.new_tasks)} 个新任务")
+                        self.memory.record_decision(
+                            "add_tasks",
+                            ", ".join(str(t.get("description", "")) for t in eval_action.new_tasks),
+                        )
 
                     elif eval_action.action == "re_plan":
                         parent_ticket.log.append(f"重新规划: {eval_action.reason}")
+                        self.memory.record_decision("re_plan", eval_action.reason)
                         pending.clear()
                         new_plan = self.plan_task(eval_action.reason, model)
                         if new_plan:
@@ -789,8 +810,10 @@ class Supervisor:
 
             self._transition(SupervisorState.REVIEWING)
             final_result = "\n\n".join(results) if results else "（无结果）"
+            final_result += self.format_plan_summary(executed_tickets)
             final_result += self.format_verification_suggestion()
             final_result += self.format_task_summary()
+            self.memory.record_decision("final_result", _truncate(final_result, 240))
             self.complete_ticket(parent_ticket, final_result)
             self.state_manager.save_audit_log(self.worker.harness.audit_log)
 

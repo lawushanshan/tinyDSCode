@@ -79,6 +79,18 @@ def test_build_messages_includes_project_context() -> None:
     assert "src/app.py" in messages[1]["content"]
 
 
+def test_build_messages_includes_recent_decisions() -> None:
+    memory = MemoryManager()
+    memory.record_decision("plan", "read file -> patch file")
+
+    messages = memory.build_messages()
+
+    assert len(messages) == 2
+    assert messages[1]["role"] == "system"
+    assert "Recent Decisions" in messages[1]["content"]
+    assert "read file -> patch file" in messages[1]["content"]
+
+
 def test_clear_working() -> None:
     memory = MemoryManager()
     memory.history.append({"role": "user", "content": "test"})

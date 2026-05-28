@@ -25,7 +25,7 @@ The goal is not a generic chat CLI. The goal is an agentic coding loop with thes
 - Persistence: `src/deepseek_code/persistence.py`
 - Evaluation harness: `src/deepseek_code/eval/`
 
-## Iteration 1: Reliable Single-Task Coding Loop
+## Iteration 1: Reliable Single-Task Coding Loop (Done)
 
 Objective: make one coding task run end-to-end reliably in the style of a small Claude Code session.
 
@@ -46,28 +46,43 @@ Definition of done:
 - Python test suite passes with `python -m pytest tests/`.
 - New behavior is covered by focused tests.
 
+Implementation notes:
+
+- Existing-file edits are guarded to use `apply_patch`; `write_file` is reserved for new files.
+- Final task output includes changed files, verification suggestions, compact trace summary, and an executed plan for multi-step work.
+- REPL supports `/diff`, `/verify`, `/trace`, `/tickets`, `/status`, `/context`, and `/refresh`.
+- Changed-file tracking covers `write_file` and `apply_patch`.
+- Worker loop now guards repeated tool calls, no-progress loops, rejected tool calls, and post-mutation final summaries.
+- User-facing documentation and critical prompts are valid UTF-8 Chinese.
+- On this Windows environment, run tests with a writable pytest base temp directory, for example:
+  `set PYTEST_ADDOPTS=--basetemp=.pytest-tmp && python -m pytest tests/`
+
 ## Iteration 2: Stronger Project Understanding
 
 Objective: make the agent choose better context and verification commands before editing.
 
+Status: partially implemented.
+
 Planned work:
 
-- Extend RepoMap with package manager, test framework, entry point, and key config detection.
+- Extend RepoMap with package manager, test framework, entry point, and key config detection. (Done)
 - Prefer targeted search and file reads before editing.
-- Suggest narrower verification commands such as a relevant test file when possible.
-- Track recent user and agent decisions in a compact project memory.
+- Suggest narrower verification commands such as a relevant test file when possible. (Done for common Python, Node, Go, Rust, Java, Gradle, and .NET projects)
+- Track recent user and agent decisions in a compact project memory. (Done)
 
 ## Iteration 3: Better Interactive Control
 
 Objective: make REPL feel closer to a controllable coding assistant.
 
+Status: partially implemented.
+
 Planned work:
 
-- Show an explicit plan before multi-step work.
+- Show an explicit plan before multi-step work. (Done in final task output for executed multi-step work)
 - Let the user inspect, continue, or revise tickets.
 - Improve approval prompts for risky commands.
 - Add resumable task workflow after interruption.
-- Improve structured output sections: plan, changes, tests, notes.
+- Improve structured output sections: plan, changes, tests, notes. (Partially done: plan, changes, suggested tests, trace summary)
 
 ## Longer-Term Direction
 

@@ -130,6 +130,25 @@ def test_format_task_summary_without_changes() -> None:
     assert "Trace summary:" not in summary
 
 
+def test_format_plan_summary_for_multiple_tickets() -> None:
+    supervisor = Supervisor()
+    first = supervisor.create_ticket("read target file")
+    second = supervisor.create_ticket("patch target file")
+
+    summary = supervisor.format_plan_summary([first, second])
+
+    assert "Plan" in summary
+    assert "1. read target file" in summary
+    assert "2. patch target file" in summary
+
+
+def test_format_plan_summary_skips_single_ticket() -> None:
+    supervisor = Supervisor()
+    ticket = supervisor.create_ticket("single task")
+
+    assert supervisor.format_plan_summary([ticket]) == ""
+
+
 def test_suggest_verification_command_for_python_changes() -> None:
     supervisor = Supervisor()
     supervisor.changed_files = ["src/app.py"]
@@ -747,6 +766,10 @@ def test_handle_prompt_with_subtasks(tmp_path) -> None:
     response = supervisor.handle_prompt("多步骤任务", model="mock")
     assert "步骤A" in response
     assert "步骤B" in response
+    assert "Plan" in response
+    assert "1. 步骤A" in response
+    assert "2. 步骤B" in response
+    assert any("步骤A -> 步骤B" in item for item in supervisor.memory.recent_decisions)
     assert supervisor.state == SupervisorState.IDLE
     assert len(supervisor.tickets) == 3  # 1 parent + 2 children
 
@@ -892,7 +915,8 @@ def test_handle_prompt_dynamic_skip_remaining(tmp_path) -> None:
     assert "步骤A" in response
     assert "步骤B" not in response
     assert "步骤C" not in response
-    
+    assert any("skip_remaining" in item for item in supervisor.memory.recent_decisions)
+
     parent = supervisor.tickets[0]
     assert "跳过剩余任务" in parent.log[-2]
 
