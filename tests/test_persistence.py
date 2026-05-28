@@ -17,6 +17,34 @@ def test_state_manager_save_load(tmp_path: Path) -> None:
     manager.save_audit_log(audit)
     assert manager.load_audit_log() == audit
 
+    notes = [
+        {"category": "decision", "text": "保持 rollback 只读", "source": "manual"},
+        {"category": "decision", "text": "保持 rollback 只读", "source": "duplicate"},
+    ]
+    manager.save_session_notes(notes)
+    assert manager.load_session_notes() == [
+        {
+            "category": "decision",
+            "text": "保持 rollback 只读",
+            "source": "manual",
+            "created_at": "",
+        }
+    ]
+
+
+def test_session_notes_are_pruned(tmp_path: Path) -> None:
+    manager = StateManager(root=tmp_path)
+    manager.save_session_notes([
+        {"category": "note", "text": f"note {index}"}
+        for index in range(205)
+    ])
+
+    notes = manager.load_session_notes()
+
+    assert len(notes) == 200
+    assert notes[0]["text"] == "note 5"
+    assert notes[-1]["text"] == "note 204"
+
 
 def test_supervisor_persistence(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))

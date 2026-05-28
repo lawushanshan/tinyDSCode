@@ -154,15 +154,15 @@ Implementation notes:
 
 Objective: preserve important decisions and user preferences across CLI sessions without requiring semantic search or a multi-worker architecture.
 
-Status: planned.
+Status: started.
 
 Planned work:
 
-- Persist compact session notes under `.harness_state/`, for example `session_notes.json`.
+- Persist compact session notes under `.harness_state/`, for example `session_notes.json`. (Done in first version)
 - Record durable facts such as completed iterations, architecture decisions, user preferences, recurring commands, and known manual test results.
-- Add `/notes` or `/memory` to inspect the persisted notes from REPL.
+- Add `/notes` or `/memory` to inspect the persisted notes from REPL. (Done: `/notes`)
 - Load session notes into `MemoryManager` or Supervisor startup context so future tasks can reuse them.
-- Add simple pruning or deduplication so notes stay compact and readable.
+- Add simple pruning or deduplication so notes stay compact and readable. (Done in persistence layer)
 
 Definition of done:
 
@@ -174,6 +174,7 @@ Implementation notes:
 
 - Start with structured JSON and deterministic summaries; do not add vector search or semantic retrieval yet.
 - Keep private/project-local notes in `.harness_state/` and exclude them from repository maps.
+- First version writes `session_notes.json`, deduplicates notes by category/text, keeps the latest 200 notes, and exposes `/notes`.
 
 ## Longer-Term Direction
 

@@ -269,6 +269,26 @@ def test_format_report_includes_outcome_from_legacy_result(tmp_path: Path) -> No
     assert "- 旧格式结果文本" in report
 
 
+def test_format_notes_without_notes(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+
+    assert supervisor.format_notes() == "当前没有 session notes"
+
+
+def test_record_and_format_session_notes(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+
+    supervisor.record_session_note("decision", "rollback 保持只读", source="manual-test")
+    supervisor.record_session_note("decision", "rollback 保持只读", source="duplicate")
+
+    new_supervisor = Supervisor(state_root=str(tmp_path))
+    notes = new_supervisor.format_notes()
+
+    assert "Session Notes" in notes
+    assert "1. [decision] rollback 保持只读 (manual-test)" in notes
+    assert "duplicate" not in notes
+
+
 def test_format_report_for_failed_ticket_suggests_next_steps(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     ticket = supervisor.create_ticket("失败任务")
@@ -687,6 +707,7 @@ def test_normalize_repl_command_accepts_missing_colon() -> None:
     assert supervisor.normalize_repl_command("status") == ":status"
     assert supervisor.normalize_repl_command("trace") == ":trace"
     assert supervisor.normalize_repl_command("report") == ":report"
+    assert supervisor.normalize_repl_command("notes") == ":notes"
     assert supervisor.normalize_repl_command("checkpoint") == ":checkpoint"
     assert supervisor.normalize_repl_command("rollback") == ":rollback"
 
@@ -698,6 +719,7 @@ def test_normalize_repl_command_accepts_slash_commands() -> None:
     assert supervisor.normalize_repl_command(" /STATUS ") == ":status"
     assert supervisor.normalize_repl_command("/diff") == ":diff"
     assert supervisor.normalize_repl_command("/report") == ":report"
+    assert supervisor.normalize_repl_command("/notes") == ":notes"
     assert supervisor.normalize_repl_command("/checkpoint") == ":checkpoint"
     assert supervisor.normalize_repl_command("/rollback") == ":rollback"
     assert supervisor.normalize_repl_command("/ticket T-001") == ":ticket T-001"

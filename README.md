@@ -75,6 +75,7 @@ deepseek-code repl
 | `/status` | 查看当前正在执行的 Ticket 详情 |
 | `/trace` | 查看最近一次执行轨迹 |
 | `/report` | 查看最近一次任务复盘报告 |
+| `/notes` | 查看持久化 session notes |
 | `/context` | 查看当前项目上下文 |
 | `/refresh` | 刷新项目上下文 |
 | `/diff` | 查看当前变更 diff |
@@ -122,6 +123,7 @@ Worker 可以通过 function calling 调用以下工具：
 | `tickets.json` | 所有 Ticket 列表及状态 |
 | `audit_log.json` | 操作审计日志（最近 1000 条） |
 | `supervisor.json` | Supervisor 状态机状态 |
+| `session_notes.json` | 持久化 session notes |
 
 会话中断后可通过 `deepseek-code repl` 恢复 Ticket 列表和历史；上次中断时仍为 `running` 的 Ticket 会在加载时标记为 `blocked`，可用 `/continue <id>` 继续。
 

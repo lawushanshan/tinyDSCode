@@ -13,6 +13,7 @@ class StateManager:
         self.root.mkdir(parents=True, exist_ok=True)
         self.tickets_file = self.root / "tickets.json"
         self.audit_file = self.root / "audit_log.json"
+        self.session_notes_file = self.root / "session_notes.json"
 
     def save_tickets(self, tickets: list[dict[str, Any]]) -> None:
         self._write_json(self.tickets_file, tickets)
@@ -35,6 +36,34 @@ class StateManager:
         if not self.audit_file.exists():
             return []
         return self._read_json(self.audit_file)
+
+    def save_session_notes(self, notes: list[dict[str, Any]]) -> None:
+        seen: set[tuple[str, str]] = set()
+        compact: list[dict[str, Any]] = []
+        for note in notes:
+            if not isinstance(note, dict):
+                continue
+            category = str(note.get("category", "general")).strip() or "general"
+            text = str(note.get("text", "")).strip()
+            if not text:
+                continue
+            key = (category, text)
+            if key in seen:
+                continue
+            seen.add(key)
+            compact.append({
+                "category": category,
+                "text": text,
+                "source": str(note.get("source", "")).strip(),
+                "created_at": str(note.get("created_at", "")).strip(),
+            })
+        self._write_json(self.session_notes_file, compact[-200:])
+
+    def load_session_notes(self) -> list[dict[str, Any]]:
+        if not self.session_notes_file.exists():
+            return []
+        data = self._read_json(self.session_notes_file)
+        return data if isinstance(data, list) else []
 
     def _write_json(self, path: Path, data: Any) -> None:
         path.write_text(

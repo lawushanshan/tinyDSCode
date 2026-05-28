@@ -271,6 +271,7 @@ class Supervisor:
             "status": ":status",
             "trace": ":trace",
             "report": ":report",
+            "notes": ":notes",
             "context": ":context",
             "refresh": ":refresh",
             "verify": ":verify",
@@ -741,6 +742,32 @@ class Supervisor:
 
         return "\n".join(lines)
 
+    def record_session_note(self, category: str, text: str, source: str = "") -> None:
+        note_text = text.strip()
+        if not note_text:
+            return
+        notes = self.state_manager.load_session_notes()
+        notes.append({
+            "category": category.strip() or "general",
+            "text": note_text,
+            "source": source.strip(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        self.state_manager.save_session_notes(notes)
+
+    def format_notes(self) -> str:
+        notes = self.state_manager.load_session_notes()
+        if not notes:
+            return "当前没有 session notes"
+        lines = ["Session Notes"]
+        for index, note in enumerate(notes, 1):
+            category = note.get("category", "general")
+            text = note.get("text", "")
+            source = note.get("source", "")
+            suffix = f" ({source})" if source else ""
+            lines.append(f"{index}. [{category}] {text}{suffix}")
+        return "\n".join(lines)
+
     def _git_diff(self, paths: list[str] | None = None) -> str:
         command = ["git", "diff"]
         if paths:
@@ -991,14 +1018,14 @@ class Supervisor:
     def start_repl(self, model: str = "deepseek-v4-flash") -> None:
         self.console.print("[green]输入 exit 或 quit 退出会话。[/green]")
         self.console.print("[green]输入 /tickets 查看当前 Ticket 列表。[/green]")
-        self.console.print("[green]可用命令: /help, /tickets, /ticket <id>, /status, /trace, /report, /context, /refresh, /diff, /verify, /checkpoint, /rollback, /revise <id> <描述>, /continue, /new <描述>, exit[/green]")
+        self.console.print("[green]可用命令: /help, /tickets, /ticket <id>, /status, /trace, /report, /notes, /context, /refresh, /diff, /verify, /checkpoint, /rollback, /revise <id> <描述>, /continue, /new <描述>, exit[/green]")
         while True:
             user_input = self.normalize_repl_command(Prompt.ask("[bold cyan]DeepSeek>[/bold cyan]"))
             if user_input.lower() in {"exit", "quit"}:
                 break
             if user_input == ":help":
                 self.console.print(
-                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/ticket <id> - 查看指定 Ticket 详情\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/report - 查看最近一次任务复盘报告\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/diff - 查看当前变更 diff\n/verify - 运行最近一次建议验证命令\n/checkpoint - 查看当前 git 分支、HEAD 和工作区变更概况\n/rollback - 查看安全回滚指引，不自动执行回滚\n/revise <id> <描述> - 修改 pending/blocked/failed Ticket\n/continue - 继续执行下一个未完成 Ticket\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
+                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/ticket <id> - 查看指定 Ticket 详情\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/report - 查看最近一次任务复盘报告\n/notes - 查看持久化 session notes\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/diff - 查看当前变更 diff\n/verify - 运行最近一次建议验证命令\n/checkpoint - 查看当前 git 分支、HEAD 和工作区变更概况\n/rollback - 查看安全回滚指引，不自动执行回滚\n/revise <id> <描述> - 修改 pending/blocked/failed Ticket\n/continue - 继续执行下一个未完成 Ticket\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
                 )
                 continue
             if user_input == ":tickets":
@@ -1034,6 +1061,9 @@ class Supervisor:
                 continue
             if user_input == ":report":
                 self.console.print(self.format_report())
+                continue
+            if user_input == ":notes":
+                self.console.print(self.format_notes())
                 continue
             if user_input == ":context":
                 self.console.print(self.format_context())

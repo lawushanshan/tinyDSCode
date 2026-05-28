@@ -29,6 +29,7 @@ deepseek-code repl
 /tickets
 /ticket T-001
 /report
+/notes
 /diff
 /checkpoint
 /rollback
@@ -66,7 +67,7 @@ CLI (cli.py)
         └── ToolRegistry (tools.py) — 工具自描述注册机制
 ```
 
-- **Supervisor** (`supervisor.py`): 接收用户输入，LLM 驱动子任务拆分（`plan_task()`），管理 Ticket 生命周期，状态机（`SupervisorState` 枚举：idle→planning→dispatching→waiting_worker→reviewing→complete/failed），REPL 交互。Memory 在此级别共享。REPL 支持 `/tickets`、`/ticket <id>`、`/revise <id> <描述>`、`/continue [id]`、`/report`、`/diff`、`/verify`、`/checkpoint` 和 `/rollback`。
+- **Supervisor** (`supervisor.py`): 接收用户输入，LLM 驱动子任务拆分（`plan_task()`），管理 Ticket 生命周期，状态机（`SupervisorState` 枚举：idle→planning→dispatching→waiting_worker→reviewing→complete/failed），REPL 交互。Memory 在此级别共享。REPL 支持 `/tickets`、`/ticket <id>`、`/revise <id> <描述>`、`/continue [id]`、`/report`、`/notes`、`/diff`、`/verify`、`/checkpoint` 和 `/rollback`。
 
 - **LLMService** (`llm_service.py`): 独立 LLM 调用模块。使用新版 `openai.OpenAI()` SDK + function calling。返回结构化 `LLMResponse(content, tool_calls)`。无 API key 时返回模拟响应。
 
