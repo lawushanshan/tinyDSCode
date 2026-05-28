@@ -71,12 +71,15 @@ deepseek-code repl
 |------|------|
 | `/help` | 显示帮助信息 |
 | `/tickets` | 查看当前会话的所有 Ticket 及状态 |
+| `/ticket <id>` | 查看指定 Ticket 详情 |
 | `/status` | 查看当前正在执行的 Ticket 详情 |
 | `/trace` | 查看最近一次执行轨迹 |
 | `/context` | 查看当前项目上下文 |
 | `/refresh` | 刷新项目上下文 |
 | `/diff` | 查看当前变更 diff |
 | `/verify` | 运行最近一次建议验证命令 |
+| `/revise <id> <描述>` | 修改 pending/blocked/failed Ticket 描述 |
+| `/continue [id]` | 继续执行指定 Ticket；不填 id 时继续下一个未完成 Ticket |
 | `/new <描述>` | 创建并执行新 Ticket |
 | `exit` / `quit` | 退出会话 |
 

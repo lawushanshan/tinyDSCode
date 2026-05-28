@@ -274,6 +274,9 @@ class Supervisor:
             "refresh": ":refresh",
             "verify": ":verify",
             "diff": ":diff",
+            "ticket": ":ticket",
+            "revise": ":revise",
+            "continue": ":continue",
             "new": ":new",
         }
         if lower in command_aliases:
@@ -284,7 +287,7 @@ class Supervisor:
             canonical = command_aliases.get(command.lower())
             if not canonical:
                 return stripped
-            if canonical == ":new":
+            if canonical in {":new", ":ticket", ":revise", ":continue"}:
                 return f"{canonical} {rest.strip()}" if rest.strip() else canonical
             return canonical if not rest.strip() else stripped
         return stripped
@@ -576,8 +579,123 @@ class Supervisor:
             return "当前没有 Ticket"
         lines = []
         for ticket in self.tickets:
-            lines.append(f"{ticket.ticket_id} [{ticket.status}] - {ticket.description}")
+            lines.append(f"{ticket.ticket_id} ({ticket.status}) - {ticket.description}")
         return "\n".join(lines)
+
+    def find_ticket(self, ticket_id: str) -> Ticket | None:
+        normalized = ticket_id.strip().upper()
+        for ticket in self.tickets:
+            if ticket.ticket_id.upper() == normalized:
+                return ticket
+        return None
+
+    def format_ticket_detail(self, ticket_id: str) -> str:
+        ticket = self.find_ticket(ticket_id)
+        if ticket is None:
+            return f"未找到 Ticket: {ticket_id}"
+
+        lines = [
+            f"Ticket: {ticket.ticket_id}",
+            f"状态: {ticket.status}",
+            f"描述: {ticket.description}",
+        ]
+        if ticket.parent_ticket_id:
+            lines.append(f"父 Ticket: {ticket.parent_ticket_id}")
+        if ticket.acceptance_criteria:
+            lines.append(f"验收标准: {ticket.acceptance_criteria}")
+        if ticket.result:
+            lines.append(f"结果: {_truncate(ticket.result, 500)}")
+        logs = ticket.log[-10:]
+        if logs:
+            lines.append("日志:")
+            lines.extend(f"- {item}" for item in logs)
+        return "\n".join(lines)
+
+    def revise_ticket(self, ticket_id: str, description: str) -> str:
+        ticket = self.find_ticket(ticket_id)
+        if ticket is None:
+            return f"未找到 Ticket: {ticket_id}"
+        if ticket.status not in {"pending", "blocked", "failed"}:
+            return f"Ticket {ticket.ticket_id} 当前状态为 {ticket.status}，不能修改描述"
+        new_description = description.strip()
+        if not new_description:
+            return "请提供新的 Ticket 描述"
+        old_description = ticket.description
+        ticket.description = new_description
+        if ticket.status in {"blocked", "failed"}:
+            ticket.status = "pending"
+        ticket.updated_at = datetime.now(timezone.utc)
+        ticket.log.append(f"Ticket 描述已修改: {old_description} -> {new_description}")
+        self._persist_tickets()
+        return f"已修改 {ticket.ticket_id}: {new_description}"
+
+    def next_resumable_ticket(self) -> Ticket | None:
+        for ticket in self.tickets:
+            if ticket.status in {"pending", "blocked", "failed"}:
+                return ticket
+        return None
+
+    def _prepare_resumable_ticket(self, ticket: Ticket) -> str | None:
+        if ticket.status == "done":
+            return f"Ticket {ticket.ticket_id} 已完成，不能继续执行"
+        if ticket.status == "running":
+            return f"Ticket {ticket.ticket_id} 正在执行，不能重复启动"
+        if ticket.status in {"blocked", "failed"}:
+            ticket.status = "pending"
+            ticket.updated_at = datetime.now(timezone.utc)
+            ticket.log.append("Ticket 已切回 pending，准备继续执行")
+            self._persist_tickets()
+        return None
+
+    def run_existing_ticket(self, ticket: Ticket, model: str = "deepseek-v4-flash") -> str:
+        self._reset_stale_running_state()
+        self.current_constraints = self._parse_constraints(ticket.description)
+        self.changed_files = []
+        try:
+            self._transition(SupervisorState.PLANNING)
+            self._transition(SupervisorState.DISPATCHING)
+            self.start_ticket(ticket)
+            self._transition(SupervisorState.WAITING_WORKER)
+            response = self.worker.execute_ticket(ticket, model=model, on_step=self._worker_on_step)
+            result = f"[{ticket.ticket_id}] {response}"
+            self._transition(SupervisorState.REVIEWING)
+            final_result = result + self.format_verification_suggestion() + self.format_task_summary()
+            self.memory.record_decision("final_result", _truncate(final_result, 240))
+            self.complete_ticket(ticket, final_result)
+            self.state_manager.save_audit_log(self.worker.harness.audit_log)
+            self._transition(SupervisorState.COMPLETE)
+            return final_result
+        except Exception:
+            ticket.status = "failed"
+            ticket.updated_at = datetime.now(timezone.utc)
+            ticket.log.append("Ticket 继续执行失败")
+            self._persist_tickets()
+            try:
+                self._transition(SupervisorState.FAILED)
+            except ValueError:
+                pass
+            raise
+        finally:
+            self.current_constraints = TaskConstraints(disallowed_tools=set())
+            if self.state != SupervisorState.IDLE:
+                try:
+                    self._transition(SupervisorState.IDLE)
+                except ValueError:
+                    self.state = SupervisorState.IDLE
+
+    def continue_ticket(self, ticket_id: str | None = None, model: str = "deepseek-v4-flash") -> str:
+        ticket = self.find_ticket(ticket_id) if ticket_id else self.next_resumable_ticket()
+        if ticket_id and ticket is None:
+            return f"未找到 Ticket: {ticket_id}"
+        if ticket is None:
+            return "当前没有可继续执行的 Ticket"
+        error = self._prepare_resumable_ticket(ticket)
+        if error:
+            return error
+        return self.run_existing_ticket(ticket, model=model)
+
+    def continue_next_ticket(self, model: str = "deepseek-v4-flash") -> str:
+        return self.continue_ticket(model=model)
 
     def refresh_project_context(self) -> str:
         context = RepoMapBuilder(self.state_manager.project_root).build().to_prompt()
@@ -594,7 +712,7 @@ class Supervisor:
             return "当前没有正在运行的 Ticket"
         t = self.current_ticket
         logs = "\n".join(t.log) if t.log else "（无日志）"
-        return f"当前 Ticket: {t.ticket_id} [{t.status}]\n描述: {t.description}\n日志:\n{logs}"
+        return f"当前 Ticket: {t.ticket_id} ({t.status})\n描述: {t.description}\n日志:\n{logs}"
 
     def format_trace(self) -> str:
         steps = self.worker.last_steps
@@ -625,18 +743,40 @@ class Supervisor:
     def start_repl(self, model: str = "deepseek-v4-flash") -> None:
         self.console.print("[green]输入 exit 或 quit 退出会话。[/green]")
         self.console.print("[green]输入 /tickets 查看当前 Ticket 列表。[/green]")
-        self.console.print("[green]可用命令: /help, /tickets, /status, /trace, /context, /refresh, /diff, /verify, /new <描述>, exit[/green]")
+        self.console.print("[green]可用命令: /help, /tickets, /ticket <id>, /status, /trace, /context, /refresh, /diff, /verify, /revise <id> <描述>, /continue, /new <描述>, exit[/green]")
         while True:
             user_input = self.normalize_repl_command(Prompt.ask("[bold cyan]DeepSeek>[/bold cyan]"))
             if user_input.lower() in {"exit", "quit"}:
                 break
             if user_input == ":help":
                 self.console.print(
-                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/diff - 查看当前变更 diff\n/verify - 运行最近一次建议验证命令\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
+                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/ticket <id> - 查看指定 Ticket 详情\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/diff - 查看当前变更 diff\n/verify - 运行最近一次建议验证命令\n/revise <id> <描述> - 修改 pending/blocked/failed Ticket\n/continue - 继续执行下一个未完成 Ticket\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
                 )
                 continue
             if user_input == ":tickets":
                 self.console.print(self.list_tickets())
+                continue
+            if user_input.startswith(":ticket "):
+                ticket_id = user_input[8:].strip()
+                if not ticket_id:
+                    self.console.print("请提供 Ticket ID，例如: /ticket T-001")
+                    continue
+                self.console.print(self.format_ticket_detail(ticket_id))
+                continue
+            if user_input.startswith(":revise "):
+                payload = user_input[8:].strip()
+                ticket_id, _, description = payload.partition(" ")
+                if not ticket_id or not description.strip():
+                    self.console.print("请提供 Ticket ID 和新描述，例如: /revise T-001 修复 auth.ts")
+                    continue
+                self.console.print(self.revise_ticket(ticket_id, description))
+                continue
+            if user_input == ":continue" or user_input.startswith(":continue "):
+                ticket_id = user_input[10:].strip() if user_input.startswith(":continue ") else None
+                try:
+                    self.console.print(self.continue_ticket(ticket_id, model=model))
+                except Exception as e:
+                    self.console.print(f"[red]继续执行出错: {e}[/red]")
                 continue
             if user_input == ":status":
                 self.console.print(self.format_status())

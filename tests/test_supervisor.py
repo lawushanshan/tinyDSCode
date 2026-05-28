@@ -14,7 +14,7 @@ def test_create_and_list_tickets() -> None:
     supervisor = Supervisor()
     assert supervisor.list_tickets() == "当前没有 Ticket"
     supervisor.create_ticket("测试任务")
-    assert "T-001 [pending] - 测试任务" in supervisor.list_tickets()
+    assert "T-001 (pending) - 测试任务" in supervisor.list_tickets()
 
 
 def test_format_status_without_current_ticket() -> None:
@@ -29,7 +29,7 @@ def test_format_status_with_current_ticket() -> None:
 
     status = supervisor.format_status()
 
-    assert "当前 Ticket: T-001 [running]" in status
+    assert "当前 Ticket: T-001 (running)" in status
     assert "描述: 测试状态" in status
     assert "Ticket 开始执行" in status
 
@@ -423,6 +423,10 @@ def test_normalize_repl_command_accepts_slash_commands() -> None:
     assert supervisor.normalize_repl_command("/verify") == ":verify"
     assert supervisor.normalize_repl_command(" /STATUS ") == ":status"
     assert supervisor.normalize_repl_command("/diff") == ":diff"
+    assert supervisor.normalize_repl_command("/ticket T-001") == ":ticket T-001"
+    assert supervisor.normalize_repl_command("/revise T-001 修复描述") == ":revise T-001 修复描述"
+    assert supervisor.normalize_repl_command("/continue") == ":continue"
+    assert supervisor.normalize_repl_command("/continue T-003") == ":continue T-003"
     assert supervisor.normalize_repl_command("/new 测试任务") == ":new 测试任务"
     assert supervisor.normalize_repl_command("/new") == ":new"
 
@@ -432,6 +436,135 @@ def test_normalize_repl_command_keeps_regular_tasks() -> None:
 
     assert supervisor.normalize_repl_command("创建一个文件") == "创建一个文件"
     assert supervisor.normalize_repl_command(":new 测试") == ":new 测试"
+
+
+def test_format_ticket_detail_for_existing_ticket() -> None:
+    supervisor = Supervisor()
+    ticket = supervisor.create_ticket("检查登录逻辑")
+    ticket.acceptance_criteria = "通过测试"
+    ticket.log.append("定位 auth.ts")
+
+    detail = supervisor.format_ticket_detail("t-001")
+
+    assert "Ticket: T-001" in detail
+    assert "状态: pending" in detail
+    assert "描述: 检查登录逻辑" in detail
+    assert "验收标准: 通过测试" in detail
+    assert "- 定位 auth.ts" in detail
+
+
+def test_format_ticket_detail_for_missing_ticket() -> None:
+    supervisor = Supervisor()
+
+    assert supervisor.format_ticket_detail("T-404") == "未找到 Ticket: T-404"
+
+
+def test_revise_ticket_updates_pending_ticket() -> None:
+    supervisor = Supervisor()
+    ticket = supervisor.create_ticket("旧描述")
+
+    result = supervisor.revise_ticket(ticket.ticket_id, "新描述")
+
+    assert result == "已修改 T-001: 新描述"
+    assert ticket.description == "新描述"
+    assert "Ticket 描述已修改" in ticket.log[-1]
+
+
+def test_revise_ticket_resets_failed_ticket_to_pending() -> None:
+    supervisor = Supervisor()
+    ticket = supervisor.create_ticket("旧描述")
+    ticket.status = "failed"
+
+    result = supervisor.revise_ticket(ticket.ticket_id, "重试描述")
+
+    assert result == "已修改 T-001: 重试描述"
+    assert ticket.status == "pending"
+
+
+def test_revise_ticket_rejects_running_or_done_ticket() -> None:
+    supervisor = Supervisor()
+    running = supervisor.create_ticket("运行中")
+    running.status = "running"
+    done = supervisor.create_ticket("已完成")
+    done.status = "done"
+
+    assert "不能修改描述" in supervisor.revise_ticket(running.ticket_id, "新描述")
+    assert "不能修改描述" in supervisor.revise_ticket(done.ticket_id, "新描述")
+    assert running.description == "运行中"
+    assert done.description == "已完成"
+
+
+def test_continue_next_ticket_runs_first_resumable_ticket() -> None:
+    supervisor = Supervisor()
+    done = supervisor.create_ticket("已完成")
+    done.status = "done"
+    pending = supervisor.create_ticket("继续这个")
+    supervisor.run_existing_ticket = MagicMock(return_value="继续结果")
+
+    result = supervisor.continue_next_ticket(model="mock")
+
+    assert result == "继续结果"
+    supervisor.run_existing_ticket.assert_called_once_with(pending, model="mock")
+
+
+def test_continue_next_ticket_resets_failed_ticket_before_running() -> None:
+    supervisor = Supervisor()
+    failed = supervisor.create_ticket("失败任务")
+    failed.status = "failed"
+    supervisor.run_existing_ticket = MagicMock(return_value="重试结果")
+
+    result = supervisor.continue_next_ticket(model="mock")
+
+    assert result == "重试结果"
+    assert failed.status == "pending"
+    assert "准备继续执行" in failed.log[-1]
+    supervisor.run_existing_ticket.assert_called_once_with(failed, model="mock")
+
+
+def test_continue_ticket_runs_requested_ticket_id() -> None:
+    supervisor = Supervisor()
+    first = supervisor.create_ticket("第一个")
+    second = supervisor.create_ticket("第二个")
+    supervisor.run_existing_ticket = MagicMock(return_value="执行第二个")
+
+    result = supervisor.continue_ticket("t-002", model="mock")
+
+    assert result == "执行第二个"
+    supervisor.run_existing_ticket.assert_called_once_with(second, model="mock")
+    assert first.status == "pending"
+
+
+def test_continue_ticket_rejects_done_ticket() -> None:
+    supervisor = Supervisor()
+    ticket = supervisor.create_ticket("已完成")
+    ticket.status = "done"
+
+    result = supervisor.continue_ticket(ticket.ticket_id, model="mock")
+
+    assert result == "Ticket T-001 已完成，不能继续执行"
+
+
+def test_run_existing_ticket_keeps_original_ticket_id() -> None:
+    supervisor = Supervisor()
+    ticket = supervisor.create_ticket("原始任务")
+    supervisor.worker.execute_ticket = MagicMock(return_value="完成原始任务")
+
+    result = supervisor.run_existing_ticket(ticket, model="mock")
+
+    assert "[T-001] 完成原始任务" in result
+    assert len(supervisor.tickets) == 1
+    assert supervisor.tickets[0].ticket_id == "T-001"
+    assert supervisor.tickets[0].status == "done"
+    supervisor.worker.execute_ticket.assert_called_once()
+    assert supervisor.worker.execute_ticket.call_args[0][0] is ticket
+
+
+def test_continue_next_ticket_without_resumable_ticket() -> None:
+    supervisor = Supervisor()
+    done = supervisor.create_ticket("已完成")
+    done.status = "done"
+
+    assert supervisor.continue_next_ticket(model="mock") == "当前没有可继续执行的 Ticket"
 
 
 def test_supervisor_initializes_project_context(tmp_path: Path) -> None:
