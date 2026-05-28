@@ -159,7 +159,7 @@ Status: started.
 Planned work:
 
 - Persist compact session notes under `.harness_state/`, for example `session_notes.json`. (Done in first version)
-- Record durable facts such as completed iterations, architecture decisions, user preferences, recurring commands, and known manual test results.
+- Record durable facts such as completed iterations, architecture decisions, user preferences, recurring commands, and known manual test results. (Started: coordinator plans, dynamic decisions, and running-ticket recovery are recorded automatically)
 - Add `/notes` or `/memory` to inspect the persisted notes from REPL. (Done: `/notes`)
 - Load session notes into `MemoryManager` or Supervisor startup context so future tasks can reuse them.
 - Add simple pruning or deduplication so notes stay compact and readable. (Done in persistence layer)
@@ -175,6 +175,7 @@ Implementation notes:
 - Start with structured JSON and deterministic summaries; do not add vector search or semantic retrieval yet.
 - Keep private/project-local notes in `.harness_state/` and exclude them from repository maps.
 - First version writes `session_notes.json`, deduplicates notes by category/text, keeps the latest 200 notes, and exposes `/notes`.
+- Coordinator now records compact automatic notes for multi-step plans, `skip_remaining`, `add_tasks`, `re_plan`, and recovery of stale `running` tickets.
 
 ## Longer-Term Direction
 

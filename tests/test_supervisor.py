@@ -289,6 +289,30 @@ def test_record_and_format_session_notes(tmp_path: Path) -> None:
     assert "duplicate" not in notes
 
 
+def test_handle_prompt_records_plan_session_note(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.worker.execute_ticket = lambda ticket, model, on_step=None: f"完成: {ticket.description}"
+
+    supervisor.llm_service = MagicMock()
+    supervisor.llm_service.chat.side_effect = [
+        LLMResponse(content='[{"description": "步骤A"}, {"description": "步骤B"}]'),
+        LLMResponse(content='{"action": "continue"}'),
+    ]
+
+    supervisor.handle_prompt("多步骤任务", model="mock")
+    notes = StateManager(root=tmp_path).load_session_notes()
+
+    assert notes == [
+        {
+            "category": "plan",
+            "text": "步骤A -> 步骤B",
+            "source": "T-001",
+            "created_at": notes[0]["created_at"],
+        }
+    ]
+    assert "1. [plan] 步骤A -> 步骤B (T-001)" in Supervisor(state_root=str(tmp_path)).format_notes()
+
+
 def test_format_report_for_failed_ticket_suggests_next_steps(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     ticket = supervisor.create_ticket("失败任务")
@@ -1262,6 +1286,16 @@ def test_load_state_marks_running_tickets_blocked(tmp_path: Path) -> None:
     assert persisted[0]["status"] == "blocked"
     assert "上次中断" in persisted[0]["log"][-1]
 
+    notes = StateManager(root=tmp_path).load_session_notes()
+    assert notes == [
+        {
+            "category": "recovery",
+            "text": "T-001 从 running 恢复为 blocked，可用 /continue 继续",
+            "source": "T-001",
+            "created_at": notes[0]["created_at"],
+        }
+    ]
+
 
 def test_continue_ticket_resumes_recovered_running_ticket(tmp_path: Path) -> None:
     state_manager = StateManager(root=tmp_path)
@@ -1527,6 +1561,13 @@ def test_handle_prompt_dynamic_skip_remaining(tmp_path) -> None:
     assert "步骤B" not in response
     assert "步骤C" not in response
     assert any("skip_remaining" in item for item in supervisor.memory.recent_decisions)
+    notes = StateManager(root=tmp_path).load_session_notes()
+    assert ("plan", "步骤A -> 步骤B -> 步骤C", "T-001") in [
+        (note["category"], note["text"], note["source"]) for note in notes
+    ]
+    assert ("decision", "skip_remaining: 步骤A已满足目标", "T-001") in [
+        (note["category"], note["text"], note["source"]) for note in notes
+    ]
 
     parent = supervisor.tickets[0]
     assert "跳过剩余任务" in parent.log[-2]
@@ -1551,6 +1592,10 @@ def test_handle_prompt_dynamic_add_tasks(tmp_path) -> None:
     assert "步骤A" in response
     assert "步骤B" in response
     assert "新步骤C" in response
+    notes = StateManager(root=tmp_path).load_session_notes()
+    assert ("decision", "add_tasks: 新步骤C", "T-001") in [
+        (note["category"], note["text"], note["source"]) for note in notes
+    ]
     
     parent = supervisor.tickets[0]
     assert "追加 1 个新任务" in parent.log[-2]
@@ -1573,6 +1618,10 @@ def test_handle_prompt_dynamic_re_plan(tmp_path) -> None:
     assert "步骤A" in response
     assert "步骤B" not in response
     assert "新步骤C" in response
+    notes = StateManager(root=tmp_path).load_session_notes()
+    assert ("decision", "re_plan: 需要调整计划", "T-001") in [
+        (note["category"], note["text"], note["source"]) for note in notes
+    ]
     
     parent = supervisor.tickets[0]
     assert "重新规划" in parent.log[-2]

@@ -1216,10 +1216,9 @@ class Supervisor:
             else:
                 child_tickets = [parent_ticket]
             if len(child_tickets) > 1:
-                self.memory.record_decision(
-                    "plan",
-                    " -> ".join(ticket.description for ticket in child_tickets),
-                )
+                plan_summary = " -> ".join(ticket.description for ticket in child_tickets)
+                self.memory.record_decision("plan", plan_summary)
+                self.record_session_note("plan", plan_summary, parent_ticket.ticket_id)
 
             pending = list(child_tickets)
             executed_tickets: list[Ticket] = []
@@ -1249,6 +1248,11 @@ class Supervisor:
                     if eval_action.action == "skip_remaining":
                         parent_ticket.log.append(f"跳过剩余任务: {eval_action.reason}")
                         self.memory.record_decision("skip_remaining", eval_action.reason)
+                        self.record_session_note(
+                            "decision",
+                            f"skip_remaining: {eval_action.reason}",
+                            parent_ticket.ticket_id,
+                        )
                         self.cancel_pending_tickets(pending, eval_action.reason)
                         pending.clear()
 
@@ -1257,14 +1261,27 @@ class Supervisor:
                             new_ticket = self._create_child_ticket(parent_ticket, t)
                             pending.append(new_ticket)
                         parent_ticket.log.append(f"追加 {len(eval_action.new_tasks)} 个新任务")
+                        added_tasks = ", ".join(
+                            str(t.get("description", "")) for t in eval_action.new_tasks
+                        )
                         self.memory.record_decision(
                             "add_tasks",
-                            ", ".join(str(t.get("description", "")) for t in eval_action.new_tasks),
+                            added_tasks,
+                        )
+                        self.record_session_note(
+                            "decision",
+                            f"add_tasks: {added_tasks}",
+                            parent_ticket.ticket_id,
                         )
 
                     elif eval_action.action == "re_plan":
                         parent_ticket.log.append(f"重新规划: {eval_action.reason}")
                         self.memory.record_decision("re_plan", eval_action.reason)
+                        self.record_session_note(
+                            "decision",
+                            f"re_plan: {eval_action.reason}",
+                            parent_ticket.ticket_id,
+                        )
                         pending.clear()
                         new_plan = self.plan_task(eval_action.reason, model)
                         if new_plan:
@@ -1306,6 +1323,11 @@ class Supervisor:
                 ticket.status = "blocked"
                 ticket.updated_at = datetime.now(timezone.utc)
                 ticket.log.append("检测到上次中断的 running Ticket，已标记为 blocked，可用 /continue 继续执行")
+                self.record_session_note(
+                    "recovery",
+                    f"{ticket.ticket_id} 从 running 恢复为 blocked，可用 /continue 继续",
+                    ticket.ticket_id,
+                )
                 recovered_running_tickets = True
             self.tickets.append(ticket)
         self.ticket_counter = len(self.tickets)
