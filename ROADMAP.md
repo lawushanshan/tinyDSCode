@@ -80,7 +80,7 @@ Implementation notes:
 
 Objective: make REPL feel closer to a controllable coding assistant.
 
-Status: partially implemented.
+Status: done for the current single-worker architecture.
 
 Planned work:
 
@@ -101,10 +101,26 @@ Implementation notes:
 - Shell approvals now include simple risk classification (`low`, `medium`, `high`) and persist risk reasons to the audit log.
 - Final task output uses stable `Result`, `Plan`, `Changes`, `Tests`, and `Notes` sections without duplicating verification suggestions.
 
+## Iteration 4: Safer Git-Aware Workflows
+
+Objective: make longer coding sessions easier to inspect and recover without adding destructive automation.
+
+Status: started.
+
+Planned work:
+
+- Show a read-only checkpoint summary of branch, HEAD, and working tree changes. (Done: `/checkpoint`)
+- Add optional checkpoint guidance before risky or multi-file changes.
+- Add rollback guidance that explains safe manual options without running destructive git commands automatically.
+
+Implementation notes:
+
+- `/checkpoint` is read-only and runs `git branch --show-current`, `git rev-parse --short HEAD`, and `git status --short`.
+- The checkpoint command reports non-git directories clearly instead of failing with raw git errors.
+
 ## Longer-Term Direction
 
 - Multi-worker or specialized worker roles: planner, coder, reviewer.
 - Stronger sandboxing and safer shell execution.
-- Git-aware checkpoints and optional rollback guidance.
 - Long-term memory with semantic retrieval.
 - IDE/editor integration.

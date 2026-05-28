@@ -274,6 +274,7 @@ class Supervisor:
             "refresh": ":refresh",
             "verify": ":verify",
             "diff": ":diff",
+            "checkpoint": ":checkpoint",
             "ticket": ":ticket",
             "revise": ":revise",
             "continue": ":continue",
@@ -515,6 +516,35 @@ class Supervisor:
             return diff_text
         scope = "本轮变更文件" if paths else "当前工作区"
         return f"{scope}没有可显示的 git diff"
+
+    def format_checkpoint(self) -> str:
+        inside_result = self._run_git(["git", "rev-parse", "--is-inside-work-tree"])
+        branch_result = self._run_git(["git", "branch", "--show-current"])
+        head_result = self._run_git(["git", "rev-parse", "--short", "HEAD"])
+        status_result = self._run_git(["git", "status", "--short"])
+        if (
+            inside_result.returncode != 0
+            or (inside_result.stdout or "").strip().lower() != "true"
+            or branch_result.returncode != 0
+            or status_result.returncode != 0
+        ):
+            return "当前目录不是可读取的 git 仓库，无法生成 checkpoint 状态"
+
+        branch = (branch_result.stdout or "").strip() or "detached"
+        head = (head_result.stdout or "").strip() if head_result.returncode == 0 else "unknown"
+        status_lines = [line for line in (status_result.stdout or "").splitlines() if line.strip()]
+        lines = [
+            "Checkpoint",
+            f"- 分支: {branch}",
+            f"- HEAD: {head}",
+            f"- 工作区: {'干净' if not status_lines else f'有 {len(status_lines)} 项变更'}",
+        ]
+        if status_lines:
+            lines.append("变更:")
+            lines.extend(f"- {line}" for line in status_lines[:20])
+            if len(status_lines) > 20:
+                lines.append(f"- ... 还有 {len(status_lines) - 20} 项")
+        return "\n".join(lines)
 
     def _git_diff(self, paths: list[str] | None = None) -> str:
         command = ["git", "diff"]
@@ -766,14 +796,14 @@ class Supervisor:
     def start_repl(self, model: str = "deepseek-v4-flash") -> None:
         self.console.print("[green]输入 exit 或 quit 退出会话。[/green]")
         self.console.print("[green]输入 /tickets 查看当前 Ticket 列表。[/green]")
-        self.console.print("[green]可用命令: /help, /tickets, /ticket <id>, /status, /trace, /context, /refresh, /diff, /verify, /revise <id> <描述>, /continue, /new <描述>, exit[/green]")
+        self.console.print("[green]可用命令: /help, /tickets, /ticket <id>, /status, /trace, /context, /refresh, /diff, /verify, /checkpoint, /revise <id> <描述>, /continue, /new <描述>, exit[/green]")
         while True:
             user_input = self.normalize_repl_command(Prompt.ask("[bold cyan]DeepSeek>[/bold cyan]"))
             if user_input.lower() in {"exit", "quit"}:
                 break
             if user_input == ":help":
                 self.console.print(
-                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/ticket <id> - 查看指定 Ticket 详情\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/diff - 查看当前变更 diff\n/verify - 运行最近一次建议验证命令\n/revise <id> <描述> - 修改 pending/blocked/failed Ticket\n/continue - 继续执行下一个未完成 Ticket\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
+                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/ticket <id> - 查看指定 Ticket 详情\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/diff - 查看当前变更 diff\n/verify - 运行最近一次建议验证命令\n/checkpoint - 查看当前 git 分支、HEAD 和工作区变更概况\n/revise <id> <描述> - 修改 pending/blocked/failed Ticket\n/continue - 继续执行下一个未完成 Ticket\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
                 )
                 continue
             if user_input == ":tickets":
@@ -819,6 +849,9 @@ class Supervisor:
                 continue
             if user_input == ":diff":
                 self.console.print(self.format_diff())
+                continue
+            if user_input == ":checkpoint":
+                self.console.print(self.format_checkpoint())
                 continue
             if user_input.startswith(":new "):
                 desc = user_input[5:].strip()

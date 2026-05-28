@@ -434,6 +434,47 @@ def test_format_diff_handles_empty_subprocess_stdout(tmp_path: Path) -> None:
     assert diff == "当前工作区没有可显示的 git diff"
 
 
+def test_format_checkpoint_for_clean_git_repo(tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    target = tmp_path / "tracked.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.py"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+
+    checkpoint = Supervisor(state_root=str(tmp_path)).format_checkpoint()
+
+    assert "Checkpoint" in checkpoint
+    assert "- 分支:" in checkpoint
+    assert "- HEAD:" in checkpoint
+    assert "- 工作区: 干净" in checkpoint
+
+
+def test_format_checkpoint_for_dirty_git_repo(tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    tracked = tmp_path / "tracked.py"
+    tracked.write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.py"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    tracked.write_text("VALUE = 2\n", encoding="utf-8")
+    (tmp_path / "new.py").write_text("VALUE = 3\n", encoding="utf-8")
+
+    checkpoint = Supervisor(state_root=str(tmp_path)).format_checkpoint()
+
+    assert "- 工作区: 有 2 项变更" in checkpoint
+    assert "tracked.py" in checkpoint
+    assert "?? new.py" in checkpoint
+
+
+def test_format_checkpoint_outside_git_repo(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    checkpoint = supervisor.format_checkpoint()
+
+    assert checkpoint == "当前目录不是可读取的 git 仓库，无法生成 checkpoint 状态"
+
+
 def test_normalize_repl_command_accepts_missing_colon() -> None:
     supervisor = Supervisor()
 
@@ -441,6 +482,7 @@ def test_normalize_repl_command_accepts_missing_colon() -> None:
     assert supervisor.normalize_repl_command(" VERIFY ") == ":verify"
     assert supervisor.normalize_repl_command("status") == ":status"
     assert supervisor.normalize_repl_command("trace") == ":trace"
+    assert supervisor.normalize_repl_command("checkpoint") == ":checkpoint"
 
 
 def test_normalize_repl_command_accepts_slash_commands() -> None:
@@ -449,6 +491,7 @@ def test_normalize_repl_command_accepts_slash_commands() -> None:
     assert supervisor.normalize_repl_command("/verify") == ":verify"
     assert supervisor.normalize_repl_command(" /STATUS ") == ":status"
     assert supervisor.normalize_repl_command("/diff") == ":diff"
+    assert supervisor.normalize_repl_command("/checkpoint") == ":checkpoint"
     assert supervisor.normalize_repl_command("/ticket T-001") == ":ticket T-001"
     assert supervisor.normalize_repl_command("/revise T-001 修复描述") == ":revise T-001 修复描述"
     assert supervisor.normalize_repl_command("/continue") == ":continue"
