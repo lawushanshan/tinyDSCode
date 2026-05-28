@@ -105,6 +105,8 @@ Worker 可以通过 function calling 调用以下工具：
 | `list_dir` | 列出目录内容 | 自动允许 |
 | `run_shell` | 执行 shell 命令 | 需人工确认 |
 
+交互式 REPL 中的 `run_shell` 会在执行前请求确认，并显示风险等级、风险原因和完整命令。
+
 ## 本地状态与审计
 
 运行时在当前目录下创建 `.harness_state/`，用于持久化：

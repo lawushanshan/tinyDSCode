@@ -86,7 +86,7 @@ Planned work:
 
 - Show an explicit plan before multi-step work. (Done in final task output for executed multi-step work)
 - Let the user inspect, continue, or revise tickets. (Partially done: `/ticket <id>`, `/revise <id> <description>`, and `/continue [id]`)
-- Improve approval prompts for risky commands.
+- Improve approval prompts for risky commands. (Done for `run_shell`: prompts show risk level, reasons, and command text)
 - Add resumable task workflow after interruption.
 - Improve structured output sections: plan, changes, tests, notes. (Partially done: plan, changes, suggested tests, trace summary)
 
@@ -96,6 +96,7 @@ Implementation notes:
 - `pending`, `blocked`, and `failed` tickets can be revised; blocked/failed tickets are reset to `pending` after revision.
 - `/continue [id]` resumes the selected pending/blocked/failed Ticket in place, preserving the original Ticket ID; without an id it resumes the first unfinished Ticket.
 - Coordinator-driven task reduction uses `cancelled` instead of deleting Tickets: when `skip_remaining` fires, skipped pending subtasks are marked `cancelled` and will not be resumed by `/continue`.
+- Shell approvals now include simple risk classification (`low`, `medium`, `high`) and persist risk reasons to the audit log.
 
 ## Longer-Term Direction
 

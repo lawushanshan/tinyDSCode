@@ -44,15 +44,79 @@ class Harness:
             "shell": not interactive,
         }
 
+    def assess_shell_risk(self, command: str) -> tuple[str, list[str]]:
+        normalized = command.lower()
+        reasons: list[str] = []
+
+        destructive_patterns = (
+            r"\brm\s+.*(-r|-f|/)",
+            r"\bdel\s+",
+            r"\brmdir\s+",
+            r"\bremove-item\b",
+            r"\bgit\s+reset\b",
+            r"\bgit\s+clean\b",
+            r"\bformat\b",
+        )
+        network_patterns = (
+            r"\bcurl\b",
+            r"\bwget\b",
+            r"\binvoke-webrequest\b",
+            r"\binvoke-restmethod\b",
+            r"\bssh\b",
+            r"\bscp\b",
+        )
+        install_patterns = (
+            r"\bnpm\s+install\b",
+            r"\bpip\s+install\b",
+            r"\buv\s+add\b",
+            r"\bpoetry\s+add\b",
+            r"\bcargo\s+install\b",
+        )
+
+        for pattern in destructive_patterns:
+            if re.search(pattern, normalized):
+                reasons.append("可能删除文件、重置代码或破坏工作区")
+                break
+        for pattern in network_patterns:
+            if re.search(pattern, normalized):
+                reasons.append("可能访问网络或远程主机")
+                break
+        for pattern in install_patterns:
+            if re.search(pattern, normalized):
+                reasons.append("可能安装依赖或修改环境")
+                break
+        if re.search(r"\b(setx|export)\b", normalized):
+            reasons.append("可能修改环境变量")
+        if any(operator in command for operator in ("|", "&&", "||", ";")):
+            reasons.append("包含管道或多段命令，实际执行范围更大")
+
+        if any("删除" in reason or "重置" in reason or "破坏" in reason for reason in reasons):
+            return "high", reasons
+        if reasons:
+            return "medium", reasons
+        return "low", ["未检测到明显高风险操作"]
+
     def request_permission(self, action: str, detail: str = "") -> bool:
         if self.allowed_actions.get(action, False):
             return True
         label = action
         if detail:
             label = f"{action}: {detail}"
-        self.console.print(f"[yellow]需要人工确认以执行 {label}[/yellow]")
+        if action == "shell":
+            risk, reasons = self.assess_shell_risk(detail)
+            self.console.print(f"[yellow]需要人工确认以执行 shell 命令[/yellow]")
+            self.console.print(f"[bold]风险等级:[/bold] {risk}")
+            self.console.print(f"[bold]原因:[/bold] {'；'.join(reasons)}")
+            self.console.print(f"[bold]命令:[/bold] {detail}")
+        else:
+            self.console.print(f"[yellow]需要人工确认以执行 {label}[/yellow]")
         result = Confirm.ask(f"是否允许执行？")
-        self.audit_log.append({"action": "permission_request", "operation": action, "detail": detail, "approval": result})
+        entry = {"action": "permission_request", "operation": action, "detail": detail, "approval": result}
+        if action == "shell":
+            risk, reasons = self.assess_shell_risk(detail)
+            entry["risk"] = risk
+            entry["risk_reasons"] = reasons
+        self.audit_log.append(entry)
         self.state_manager.save_audit_log(self.audit_log)
         return result
 
