@@ -494,6 +494,44 @@ def test_format_checkpoint_outside_git_repo(tmp_path: Path) -> None:
     assert checkpoint == "当前目录不是可读取的 git 仓库，无法生成 checkpoint 状态"
 
 
+def test_format_rollback_guidance_for_clean_git_repo(tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+
+    guidance = Supervisor(state_root=str(tmp_path)).format_rollback_guidance()
+
+    assert "Rollback Guidance" in guidance
+    assert "不会自动执行回滚" in guidance
+    assert "当前工作区干净" in guidance
+
+
+def test_format_rollback_guidance_for_dirty_git_repo(tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    target = tmp_path / "tracked.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.py"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    target.write_text("VALUE = 2\n", encoding="utf-8")
+    (tmp_path / "new.py").write_text("VALUE = 3\n", encoding="utf-8")
+
+    guidance = Supervisor(state_root=str(tmp_path)).format_rollback_guidance()
+
+    assert "运行 /checkpoint" in guidance
+    assert "运行 /diff" in guidance
+    assert "手动执行: git restore <path>" in guidance
+    assert "手动执行: git restore ." in guidance
+    assert "git clean -n" in guidance
+    assert "tracked.py" in guidance
+    assert "?? new.py" in guidance
+
+
+def test_format_rollback_guidance_outside_git_repo(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    guidance = supervisor.format_rollback_guidance()
+
+    assert guidance == "当前目录不是可读取的 git 仓库，无法生成 rollback 指引"
+
+
 def test_normalize_repl_command_accepts_missing_colon() -> None:
     supervisor = Supervisor()
 
@@ -502,6 +540,7 @@ def test_normalize_repl_command_accepts_missing_colon() -> None:
     assert supervisor.normalize_repl_command("status") == ":status"
     assert supervisor.normalize_repl_command("trace") == ":trace"
     assert supervisor.normalize_repl_command("checkpoint") == ":checkpoint"
+    assert supervisor.normalize_repl_command("rollback") == ":rollback"
 
 
 def test_normalize_repl_command_accepts_slash_commands() -> None:
@@ -511,6 +550,7 @@ def test_normalize_repl_command_accepts_slash_commands() -> None:
     assert supervisor.normalize_repl_command(" /STATUS ") == ":status"
     assert supervisor.normalize_repl_command("/diff") == ":diff"
     assert supervisor.normalize_repl_command("/checkpoint") == ":checkpoint"
+    assert supervisor.normalize_repl_command("/rollback") == ":rollback"
     assert supervisor.normalize_repl_command("/ticket T-001") == ":ticket T-001"
     assert supervisor.normalize_repl_command("/revise T-001 修复描述") == ":revise T-001 修复描述"
     assert supervisor.normalize_repl_command("/continue") == ":continue"

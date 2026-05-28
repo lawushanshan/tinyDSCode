@@ -79,6 +79,7 @@ deepseek-code repl
 | `/diff` | 查看当前变更 diff |
 | `/verify` | 运行最近一次建议验证命令 |
 | `/checkpoint` | 查看当前 git 分支、HEAD 和工作区变更概况 |
+| `/rollback` | 查看安全回滚指引，不自动执行回滚 |
 | `/revise <id> <描述>` | 修改 pending/blocked/failed Ticket 描述 |
 | `/continue [id]` | 继续执行指定 Ticket；不填 id 时继续下一个未完成 Ticket |
 | `/new <描述>` | 创建并执行新 Ticket |

@@ -275,6 +275,7 @@ class Supervisor:
             "verify": ":verify",
             "diff": ":diff",
             "checkpoint": ":checkpoint",
+            "rollback": ":rollback",
             "ticket": ":ticket",
             "revise": ":revise",
             "continue": ":continue",
@@ -548,6 +549,36 @@ class Supervisor:
                 lines.append(f"- ... 还有 {len(status_lines) - 20} 项")
         return "\n".join(lines)
 
+    def format_rollback_guidance(self) -> str:
+        inside_result = self._run_git(["git", "rev-parse", "--is-inside-work-tree"])
+        status_result = self._run_git(["git", "status", "--short"])
+        if (
+            inside_result.returncode != 0
+            or (inside_result.stdout or "").strip().lower() != "true"
+            or status_result.returncode != 0
+        ):
+            return "当前目录不是可读取的 git 仓库，无法生成 rollback 指引"
+
+        status_lines = [line for line in (status_result.stdout or "").splitlines() if line.strip()]
+        lines = [
+            "Rollback Guidance",
+            "本命令只提供指引，不会自动执行回滚。",
+            "建议顺序:",
+            "1. 运行 /checkpoint 确认分支、HEAD 和变更文件。",
+            "2. 运行 /diff review 具体改动。",
+        ]
+        if status_lines:
+            lines.append("3. 如只想撤销某个文件，手动执行: git restore <path>")
+            lines.append("4. 如确认要撤销全部未提交变更，手动执行: git restore .")
+            lines.append("5. 如包含未跟踪文件，先确认后再手动删除或使用 git clean -n 预览。")
+            lines.append("当前变更:")
+            lines.extend(f"- {line}" for line in status_lines[:20])
+            if len(status_lines) > 20:
+                lines.append(f"- ... 还有 {len(status_lines) - 20} 项")
+        else:
+            lines.append("3. 当前工作区干净，不需要 rollback。")
+        return "\n".join(lines)
+
     def _git_diff(self, paths: list[str] | None = None) -> str:
         command = ["git", "diff"]
         if paths:
@@ -798,14 +829,14 @@ class Supervisor:
     def start_repl(self, model: str = "deepseek-v4-flash") -> None:
         self.console.print("[green]输入 exit 或 quit 退出会话。[/green]")
         self.console.print("[green]输入 /tickets 查看当前 Ticket 列表。[/green]")
-        self.console.print("[green]可用命令: /help, /tickets, /ticket <id>, /status, /trace, /context, /refresh, /diff, /verify, /checkpoint, /revise <id> <描述>, /continue, /new <描述>, exit[/green]")
+        self.console.print("[green]可用命令: /help, /tickets, /ticket <id>, /status, /trace, /context, /refresh, /diff, /verify, /checkpoint, /rollback, /revise <id> <描述>, /continue, /new <描述>, exit[/green]")
         while True:
             user_input = self.normalize_repl_command(Prompt.ask("[bold cyan]DeepSeek>[/bold cyan]"))
             if user_input.lower() in {"exit", "quit"}:
                 break
             if user_input == ":help":
                 self.console.print(
-                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/ticket <id> - 查看指定 Ticket 详情\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/diff - 查看当前变更 diff\n/verify - 运行最近一次建议验证命令\n/checkpoint - 查看当前 git 分支、HEAD 和工作区变更概况\n/revise <id> <描述> - 修改 pending/blocked/failed Ticket\n/continue - 继续执行下一个未完成 Ticket\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
+                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/ticket <id> - 查看指定 Ticket 详情\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/diff - 查看当前变更 diff\n/verify - 运行最近一次建议验证命令\n/checkpoint - 查看当前 git 分支、HEAD 和工作区变更概况\n/rollback - 查看安全回滚指引，不自动执行回滚\n/revise <id> <描述> - 修改 pending/blocked/failed Ticket\n/continue - 继续执行下一个未完成 Ticket\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
                 )
                 continue
             if user_input == ":tickets":
@@ -854,6 +885,9 @@ class Supervisor:
                 continue
             if user_input == ":checkpoint":
                 self.console.print(self.format_checkpoint())
+                continue
+            if user_input == ":rollback":
+                self.console.print(self.format_rollback_guidance())
                 continue
             if user_input.startswith(":new "):
                 desc = user_input[5:].strip()
