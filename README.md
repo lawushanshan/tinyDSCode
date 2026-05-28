@@ -117,7 +117,7 @@ Worker 可以通过 function calling 调用以下工具：
 | `audit_log.json` | 操作审计日志（最近 1000 条） |
 | `supervisor.json` | Supervisor 状态机状态 |
 
-会话中断后可通过 `deepseek-code repl` 恢复 Ticket 列表和历史。
+会话中断后可通过 `deepseek-code repl` 恢复 Ticket 列表和历史；上次中断时仍为 `running` 的 Ticket 会在加载时标记为 `blocked`，可用 `/continue <id>` 继续。
 
 Ticket 状态：
 

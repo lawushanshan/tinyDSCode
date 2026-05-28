@@ -933,6 +933,54 @@ def test_state_persistence(tmp_path: Path) -> None:
     assert new_supervisor.state == SupervisorState.DISPATCHING
 
 
+def test_load_state_marks_running_tickets_blocked(tmp_path: Path) -> None:
+    state_manager = StateManager(root=tmp_path)
+    state_manager.save_tickets([
+        {
+            "ticket_id": "T-001",
+            "status": "running",
+            "description": "中断前运行中的任务",
+            "log": ["Ticket 开始执行"],
+        },
+        {
+            "ticket_id": "T-002",
+            "status": "pending",
+            "description": "等待任务",
+            "log": [],
+        },
+    ])
+
+    supervisor = Supervisor(state_root=str(tmp_path))
+
+    assert supervisor.tickets[0].status == "blocked"
+    assert supervisor.tickets[1].status == "pending"
+    assert "上次中断" in supervisor.tickets[0].log[-1]
+
+    persisted = StateManager(root=tmp_path).load_tickets()
+    assert persisted[0]["status"] == "blocked"
+    assert "上次中断" in persisted[0]["log"][-1]
+
+
+def test_continue_ticket_resumes_recovered_running_ticket(tmp_path: Path) -> None:
+    state_manager = StateManager(root=tmp_path)
+    state_manager.save_tickets([
+        {
+            "ticket_id": "T-001",
+            "status": "running",
+            "description": "中断前运行中的任务",
+            "log": [],
+        },
+    ])
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.run_existing_ticket = MagicMock(return_value="继续完成")
+
+    result = supervisor.continue_ticket("T-001", model="mock")
+
+    assert result == "继续完成"
+    assert supervisor.tickets[0].status == "pending"
+    supervisor.run_existing_ticket.assert_called_once_with(supervisor.tickets[0], model="mock")
+
+
 def test_supervisor_persistence(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     supervisor.worker.execute_ticket = lambda ticket, model, on_step=None: "结果"

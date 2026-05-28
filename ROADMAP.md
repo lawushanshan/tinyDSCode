@@ -95,6 +95,7 @@ Implementation notes:
 - REPL can inspect individual Ticket details without rerunning work.
 - `pending`, `blocked`, and `failed` tickets can be revised; blocked/failed tickets are reset to `pending` after revision.
 - `/continue [id]` resumes the selected pending/blocked/failed Ticket in place, preserving the original Ticket ID; without an id it resumes the first unfinished Ticket.
+- Interrupted `running` tickets are recovered as `blocked` on startup so `/continue [id]` can resume them.
 - Coordinator-driven task reduction uses `cancelled` instead of deleting Tickets: when `skip_remaining` fires, skipped pending subtasks are marked `cancelled` and will not be resumed by `/continue`.
 - Shell approvals now include simple risk classification (`low`, `medium`, `high`) and persist risk reasons to the audit log.
 

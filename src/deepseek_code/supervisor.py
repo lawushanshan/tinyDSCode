@@ -1029,10 +1029,18 @@ class Supervisor:
 
     def _load_state(self) -> None:
         raw_tickets = self.state_manager.load_tickets()
+        recovered_running_tickets = False
         for raw in raw_tickets:
             ticket = Ticket(**raw)
+            if ticket.status == "running":
+                ticket.status = "blocked"
+                ticket.updated_at = datetime.now(timezone.utc)
+                ticket.log.append("检测到上次中断的 running Ticket，已标记为 blocked，可用 /continue 继续执行")
+                recovered_running_tickets = True
             self.tickets.append(ticket)
         self.ticket_counter = len(self.tickets)
+        if recovered_running_tickets:
+            self._persist_tickets()
         state_data = self.state_manager.load_supervisor_state()
         if state_data:
             self.state = SupervisorState(state_data.get("state", "idle"))
