@@ -45,7 +45,7 @@ VALID_TRANSITIONS: dict[SupervisorState, Set[SupervisorState]] = {
 class Ticket(BaseModel):
     ticket_id: str
     parent_ticket_id: Optional[str] = None
-    status: Literal["pending", "running", "blocked", "done", "failed"] = "pending"
+    status: Literal["pending", "running", "blocked", "done", "failed", "cancelled"] = "pending"
     description: str
     result: Optional[str] = None
     acceptance_criteria: Optional[str] = None
@@ -638,6 +638,8 @@ class Supervisor:
     def _prepare_resumable_ticket(self, ticket: Ticket) -> str | None:
         if ticket.status == "done":
             return f"Ticket {ticket.ticket_id} 已完成，不能继续执行"
+        if ticket.status == "cancelled":
+            return f"Ticket {ticket.ticket_id} 已取消，不能继续执行"
         if ticket.status == "running":
             return f"Ticket {ticket.ticket_id} 正在执行，不能重复启动"
         if ticket.status in {"blocked", "failed"}:
@@ -696,6 +698,18 @@ class Supervisor:
 
     def continue_next_ticket(self, model: str = "deepseek-v4-flash") -> str:
         return self.continue_ticket(model=model)
+
+    def cancel_pending_tickets(self, tickets: list[Ticket], reason: str = "") -> None:
+        note = reason.strip() or "调度器判断无需继续执行"
+        now = datetime.now(timezone.utc)
+        for ticket in tickets:
+            if ticket.status != "pending":
+                continue
+            ticket.status = "cancelled"
+            ticket.updated_at = now
+            ticket.log.append(f"Ticket 已取消: {note}")
+        if tickets:
+            self._persist_tickets()
 
     def refresh_project_context(self) -> str:
         context = RepoMapBuilder(self.state_manager.project_root).build().to_prompt()
@@ -962,6 +976,7 @@ class Supervisor:
                     if eval_action.action == "skip_remaining":
                         parent_ticket.log.append(f"跳过剩余任务: {eval_action.reason}")
                         self.memory.record_decision("skip_remaining", eval_action.reason)
+                        self.cancel_pending_tickets(pending, eval_action.reason)
                         pending.clear()
 
                     elif eval_action.action == "add_tasks" and eval_action.new_tasks:

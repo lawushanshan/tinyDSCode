@@ -117,6 +117,17 @@ Worker 可以通过 function calling 调用以下工具：
 
 会话中断后可通过 `deepseek-code repl` 恢复 Ticket 列表和历史。
 
+Ticket 状态：
+
+| 状态 | 说明 |
+|------|------|
+| `pending` | 等待执行 |
+| `running` | 正在执行 |
+| `blocked` | 暂时阻塞，需要外部处理 |
+| `done` | 已完成 |
+| `failed` | 执行失败，可修改后继续 |
+| `cancelled` | 调度器判断不再需要执行 |
+
 ## 可用模型
 
 | 模型 | 说明 |

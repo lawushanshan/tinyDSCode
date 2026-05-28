@@ -544,6 +544,16 @@ def test_continue_ticket_rejects_done_ticket() -> None:
     assert result == "Ticket T-001 已完成，不能继续执行"
 
 
+def test_continue_ticket_rejects_cancelled_ticket() -> None:
+    supervisor = Supervisor()
+    ticket = supervisor.create_ticket("已取消")
+    ticket.status = "cancelled"
+
+    result = supervisor.continue_ticket(ticket.ticket_id, model="mock")
+
+    assert result == "Ticket T-001 已取消，不能继续执行"
+
+
 def test_run_existing_ticket_keeps_original_ticket_id() -> None:
     supervisor = Supervisor()
     ticket = supervisor.create_ticket("原始任务")
@@ -563,8 +573,23 @@ def test_continue_next_ticket_without_resumable_ticket() -> None:
     supervisor = Supervisor()
     done = supervisor.create_ticket("已完成")
     done.status = "done"
+    cancelled = supervisor.create_ticket("已取消")
+    cancelled.status = "cancelled"
 
     assert supervisor.continue_next_ticket(model="mock") == "当前没有可继续执行的 Ticket"
+
+
+def test_cancel_pending_tickets_marks_pending_only() -> None:
+    supervisor = Supervisor()
+    pending = supervisor.create_ticket("待取消")
+    done = supervisor.create_ticket("已完成")
+    done.status = "done"
+
+    supervisor.cancel_pending_tickets([pending, done], "不需要了")
+
+    assert pending.status == "cancelled"
+    assert "Ticket 已取消: 不需要了" in pending.log[-1]
+    assert done.status == "done"
 
 
 def test_supervisor_initializes_project_context(tmp_path: Path) -> None:
@@ -1155,6 +1180,9 @@ def test_handle_prompt_dynamic_skip_remaining(tmp_path) -> None:
 
     parent = supervisor.tickets[0]
     assert "跳过剩余任务" in parent.log[-2]
+    cancelled = [ticket for ticket in supervisor.tickets if ticket.status == "cancelled"]
+    assert [ticket.description for ticket in cancelled] == ["步骤B", "步骤C"]
+    assert all("步骤A已满足目标" in ticket.log[-1] for ticket in cancelled)
 
 
 def test_handle_prompt_dynamic_add_tasks(tmp_path) -> None:
