@@ -581,7 +581,12 @@ class Supervisor:
     def list_tickets(self) -> str:
         if not self.tickets:
             return "当前没有 Ticket"
-        lines = []
+        status_order = ["pending", "running", "blocked", "done", "failed", "cancelled"]
+        counts = {status: 0 for status in status_order}
+        for ticket in self.tickets:
+            counts[ticket.status] = counts.get(ticket.status, 0) + 1
+        summary = "汇总: " + ", ".join(f"{status}={counts[status]}" for status in status_order)
+        lines = [summary]
         for ticket in self.tickets:
             lines.append(f"{ticket.ticket_id} ({ticket.status}) - {ticket.description}")
         return "\n".join(lines)

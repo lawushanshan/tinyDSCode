@@ -85,14 +85,15 @@ Status: partially implemented.
 Planned work:
 
 - Show an explicit plan before multi-step work. (Done in final task output for executed multi-step work)
-- Let the user inspect, continue, or revise tickets. (Partially done: `/ticket <id>`, `/revise <id> <description>`, and `/continue [id]`)
+- Let the user inspect, continue, or revise tickets. (Done: `/tickets` includes status counts; `/ticket <id>`, `/revise <id> <description>`, and `/continue [id]`)
 - Improve approval prompts for risky commands. (Done for `run_shell`: prompts show risk level, reasons, and command text)
-- Add resumable task workflow after interruption.
+- Add resumable task workflow after interruption. (Done)
 - Improve structured output sections: plan, changes, tests, notes. (Done)
 
 Implementation notes:
 
 - REPL can inspect individual Ticket details without rerunning work.
+- `/tickets` shows status counts before the detailed Ticket list.
 - `pending`, `blocked`, and `failed` tickets can be revised; blocked/failed tickets are reset to `pending` after revision.
 - `/continue [id]` resumes the selected pending/blocked/failed Ticket in place, preserving the original Ticket ID; without an id it resumes the first unfinished Ticket.
 - Interrupted `running` tickets are recovered as `blocked` on startup so `/continue [id]` can resume them.

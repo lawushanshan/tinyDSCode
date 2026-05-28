@@ -14,7 +14,27 @@ def test_create_and_list_tickets() -> None:
     supervisor = Supervisor()
     assert supervisor.list_tickets() == "当前没有 Ticket"
     supervisor.create_ticket("测试任务")
+    assert "汇总: pending=1, running=0, blocked=0, done=0, failed=0, cancelled=0" in supervisor.list_tickets()
     assert "T-001 (pending) - 测试任务" in supervisor.list_tickets()
+
+
+def test_list_tickets_summarizes_status_counts() -> None:
+    supervisor = Supervisor()
+    pending = supervisor.create_ticket("待执行")
+    blocked = supervisor.create_ticket("被阻塞")
+    blocked.status = "blocked"
+    done = supervisor.create_ticket("已完成")
+    done.status = "done"
+    cancelled = supervisor.create_ticket("已取消")
+    cancelled.status = "cancelled"
+
+    listing = supervisor.list_tickets()
+
+    assert listing.splitlines()[0] == "汇总: pending=1, running=0, blocked=1, done=1, failed=0, cancelled=1"
+    assert "T-001 (pending) - 待执行" in listing
+    assert "T-002 (blocked) - 被阻塞" in listing
+    assert "T-003 (done) - 已完成" in listing
+    assert "T-004 (cancelled) - 已取消" in listing
 
 
 def test_format_status_without_current_ticket() -> None:

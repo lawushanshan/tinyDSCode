@@ -70,7 +70,7 @@ deepseek-code repl
 | 命令 | 说明 |
 |------|------|
 | `/help` | 显示帮助信息 |
-| `/tickets` | 查看当前会话的所有 Ticket 及状态 |
+| `/tickets` | 查看当前会话的所有 Ticket、状态和状态汇总 |
 | `/ticket <id>` | 查看指定 Ticket 详情 |
 | `/status` | 查看当前正在执行的 Ticket 详情 |
 | `/trace` | 查看最近一次执行轨迹 |
