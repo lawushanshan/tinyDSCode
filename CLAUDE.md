@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Project direction and current iteration are tracked in `ROADMAP.md`. Read it first in a new session: the product goal is to build a mini version of Claude Code. Iterations 1-6 are complete for the current single-worker/read-only workflow scope; the next planning pass should decide the post-Iteration-6 direction. Use `ROADMAP.md` as the source of truth before planning or implementing the next iteration.
+Project direction and current iteration are tracked in `ROADMAP.md`. Read it first in a new session: the product goal is to build a mini version of Claude Code. Iterations 1-6 are complete for the current single-worker/read-only workflow scope; Iteration 7 (safer execution and approval UX) is next. Use `ROADMAP.md` as the source of truth before planning or implementing the next iteration.
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 后续请始终用中文回答我

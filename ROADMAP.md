@@ -179,6 +179,88 @@ Implementation notes:
 - Supervisor now syncs persisted notes into `MemoryManager`; LLM calls receive a compact `Session Notes` system section with the latest durable notes.
 - `/memory` is a compatibility alias for `/notes`.
 
+## Iteration 7: Safer Execution and Approval UX
+
+Objective: make real project usage safer by improving how shell execution, approvals, and audit feedback communicate risk before anything potentially impactful runs.
+
+Status: next.
+
+Planned work:
+
+- Review current Harness approval flow for `run_shell`, including risk labels, risk reasons, working directory, and command text.
+- Make approve/deny outcomes easier to inspect in the audit log and `/report`.
+- Strengthen classification for destructive, network, git, package-manager, and long-running commands without blocking low-risk read-only commands unnecessarily.
+- Add clearer user-facing confirmation text so manual testers can understand what they are approving.
+- Keep all destructive git operations manual; do not add automatic rollback or reset behavior.
+
+Definition of done:
+
+- Risky shell commands show enough context for a user to make a decision.
+- Denied commands are recorded clearly and do not leave Ticket state ambiguous.
+- `/report` or audit summaries can distinguish approved, denied, failed, and successful shell activity.
+- Focused tests cover risk classification, approval/denial audit records, and report formatting.
+- Manual testing verifies at least one allowed command and one denied command in REPL.
+
+Implementation notes:
+
+- Prefer incremental improvements to the existing Harness instead of adding a separate policy engine.
+- Keep prompts concise: command purpose, working directory, risk level, risk reasons, and approve/deny choices.
+- Treat command safety as explainability first; hard blocking can be added later for clearly destructive patterns.
+
+## Iteration 8: Pre-Commit Review and Change Summary
+
+Objective: turn the existing `/diff`, `/checkpoint`, `/verify`, and `/report` primitives into a reliable end-of-iteration review loop before the user commits changes.
+
+Status: planned.
+
+Planned work:
+
+- Add a concise pre-commit style summary that includes changed files, test results, unresolved risks, and suggested commit message.
+- Reuse existing read-only git helpers; do not auto-commit.
+- Make failed or skipped verification explicit in the summary.
+- Keep the output stable enough for issue comments or commit notes.
+
+Definition of done:
+
+- A user can inspect what changed and what was verified without manually combining `/diff`, `/checkpoint`, and `/report`.
+- The summary makes it clear whether tests passed, failed, or were not run.
+- Tests cover clean, dirty, failed-test, and no-git scenarios.
+
+## Iteration 9: More Reliable Failure Recovery
+
+Objective: make interrupted or failed work easier to resume without losing the original goal, trace, or last useful context.
+
+Status: planned.
+
+Planned work:
+
+- Improve `/continue` context by carrying forward the last failure reason, compact trace, relevant notes, and remaining objective.
+- Make blocked and failed Ticket recovery messages more actionable.
+- Preserve enough context for resumed work without replaying noisy worker logs.
+
+Definition of done:
+
+- Resuming a failed or blocked Ticket gives the Worker enough context to avoid repeating the same failure.
+- Users can inspect why a Ticket is resumable and what the next suggested action is.
+- Tests cover failed, blocked, and recovered-running Ticket flows.
+
+## Iteration 10: IDE/Editor Integration Seed
+
+Objective: start connecting the CLI workflow to editor-centric usage without committing to a full IDE plugin.
+
+Status: planned.
+
+Planned work:
+
+- Improve file/line references in outputs so editors can navigate them easily.
+- Add lightweight current-file or selected-file context hooks if available from the calling environment.
+- Keep the first version CLI-compatible; editor integrations should consume existing commands and reports.
+
+Definition of done:
+
+- Output paths are consistently useful for opening files from an editor or terminal.
+- The integration path is documented without requiring a specific editor extension yet.
+
 ## Longer-Term Direction
 
 - Multi-worker or specialized worker roles: planner, coder, reviewer.
