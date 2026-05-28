@@ -765,6 +765,7 @@ def test_normalize_repl_command_accepts_missing_colon() -> None:
     assert supervisor.normalize_repl_command("trace") == ":trace"
     assert supervisor.normalize_repl_command("report") == ":report"
     assert supervisor.normalize_repl_command("notes") == ":notes"
+    assert supervisor.normalize_repl_command("memory") == ":notes"
     assert supervisor.normalize_repl_command("checkpoint") == ":checkpoint"
     assert supervisor.normalize_repl_command("rollback") == ":rollback"
 
@@ -777,6 +778,7 @@ def test_normalize_repl_command_accepts_slash_commands() -> None:
     assert supervisor.normalize_repl_command("/diff") == ":diff"
     assert supervisor.normalize_repl_command("/report") == ":report"
     assert supervisor.normalize_repl_command("/notes") == ":notes"
+    assert supervisor.normalize_repl_command("/memory") == ":notes"
     assert supervisor.normalize_repl_command("/checkpoint") == ":checkpoint"
     assert supervisor.normalize_repl_command("/rollback") == ":rollback"
     assert supervisor.normalize_repl_command("/ticket T-001") == ":ticket T-001"

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Project direction and current iteration are tracked in `ROADMAP.md`. Read it first in a new session: the product goal is to build a mini version of Claude Code. Iterations 1-5 are complete for the current single-worker/read-only workflow scope; Iteration 6 (persistent session notes) is planned next. Use `ROADMAP.md` as the source of truth before planning or implementing the next iteration.
+Project direction and current iteration are tracked in `ROADMAP.md`. Read it first in a new session: the product goal is to build a mini version of Claude Code. Iterations 1-6 are complete for the current single-worker/read-only workflow scope; the next planning pass should decide the post-Iteration-6 direction. Use `ROADMAP.md` as the source of truth before planning or implementing the next iteration.
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 后续请始终用中文回答我
@@ -30,6 +30,7 @@ deepseek-code repl
 /ticket T-001
 /report
 /notes
+/memory
 /diff
 /checkpoint
 /rollback
@@ -67,7 +68,7 @@ CLI (cli.py)
         └── ToolRegistry (tools.py) — 工具自描述注册机制
 ```
 
-- **Supervisor** (`supervisor.py`): 接收用户输入，LLM 驱动子任务拆分（`plan_task()`），管理 Ticket 生命周期，状态机（`SupervisorState` 枚举：idle→planning→dispatching→waiting_worker→reviewing→complete/failed），REPL 交互。Memory 在此级别共享。REPL 支持 `/tickets`、`/ticket <id>`、`/revise <id> <描述>`、`/continue [id]`、`/report`、`/notes`、`/diff`、`/verify`、`/checkpoint` 和 `/rollback`。
+- **Supervisor** (`supervisor.py`): 接收用户输入，LLM 驱动子任务拆分（`plan_task()`），管理 Ticket 生命周期，状态机（`SupervisorState` 枚举：idle→planning→dispatching→waiting_worker→reviewing→complete/failed），REPL 交互。Memory 在此级别共享。REPL 支持 `/tickets`、`/ticket <id>`、`/revise <id> <描述>`、`/continue [id]`、`/report`、`/notes`、`/memory`、`/diff`、`/verify`、`/checkpoint` 和 `/rollback`。
 
 - **LLMService** (`llm_service.py`): 独立 LLM 调用模块。使用新版 `openai.OpenAI()` SDK + function calling。返回结构化 `LLMResponse(content, tool_calls)`。无 API key 时返回模拟响应。
 
@@ -77,7 +78,7 @@ CLI (cli.py)
 
 - **ToolRegistry** (`tools.py`): `ToolDef`（name/description/parameters/handler）自描述注册，`to_openai_schema()` 生成 function calling 格式。默认注册工具包括 `read_file`、`write_file`、`list_dir`、`run_shell`、`apply_patch`、`search_files` 和 `search_content`。
 
-- **MemoryManager** (`memory.py`): 增强版 system prompt（含工具说明 + Ralph 循环引导），token 预算驱动裁剪（`_estimate_tokens` ≈ len//2），规则版结构化摘要压缩（`_summarize_history`）。
+- **MemoryManager** (`memory.py`): 增强版 system prompt（含工具说明 + Ralph 循环引导），token 预算驱动裁剪（`_estimate_tokens` ≈ len//2），规则版结构化摘要压缩（`_summarize_history`），并把持久化 session notes 作为紧凑 system context 注入 LLM 调用。
 
 Key data flow: `CLI → Supervisor.handle_prompt() → plan_task() [LLM拆分] → Worker.execute_ticket() [Ralph循环: llm_service.chat() → harness.execute_tool_call()]* → response`
 
