@@ -88,7 +88,7 @@ Planned work:
 - Let the user inspect, continue, or revise tickets. (Partially done: `/ticket <id>`, `/revise <id> <description>`, and `/continue [id]`)
 - Improve approval prompts for risky commands. (Done for `run_shell`: prompts show risk level, reasons, and command text)
 - Add resumable task workflow after interruption.
-- Improve structured output sections: plan, changes, tests, notes. (Partially done: plan, changes, suggested tests, trace summary)
+- Improve structured output sections: plan, changes, tests, notes. (Done)
 
 Implementation notes:
 
@@ -98,6 +98,7 @@ Implementation notes:
 - Interrupted `running` tickets are recovered as `blocked` on startup so `/continue [id]` can resume them.
 - Coordinator-driven task reduction uses `cancelled` instead of deleting Tickets: when `skip_remaining` fires, skipped pending subtasks are marked `cancelled` and will not be resumed by `/continue`.
 - Shell approvals now include simple risk classification (`low`, `medium`, `high`) and persist risk reasons to the audit log.
+- Final task output uses stable `Result`, `Plan`, `Changes`, `Tests`, and `Notes` sections without duplicating verification suggestions.
 
 ## Longer-Term Direction
 

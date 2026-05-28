@@ -318,19 +318,6 @@ class Supervisor:
         ticket.log.append("Ticket 完成")
         self._persist_tickets()
 
-    def format_verification_suggestion(self) -> str:
-        if not self.changed_files:
-            return ""
-
-        lines = ["\n\n建议验证：", "变更文件:"]
-        lines.extend(f"- {path}" for path in self.changed_files)
-        command = self.suggest_verification_command()
-        if command:
-            lines.append(f"建议命令: {command}")
-        else:
-            lines.append("建议命令: 根据变更文件运行相关测试或手动检查。")
-        return "\n".join(lines)
-
     def suggest_verification_command(self) -> str | None:
         for raw_path in self.changed_files:
             path = Path(raw_path)
@@ -436,25 +423,42 @@ class Supervisor:
         return any(self.state_manager.project_root.glob(pattern))
 
     def format_task_summary(self) -> str:
-        lines = ["\n\nTask Summary"]
+        lines = ["\n\nChanges"]
         if self.changed_files:
-            lines.append("Changed files:")
             lines.extend(f"- {path}" for path in self.changed_files)
         else:
-            lines.append("Changed files: none")
+            lines.append("- none")
+
+        lines.append("")
+        lines.append("Tests")
 
         command = self.suggest_verification_command()
         if command:
-            lines.append(f"Suggested verification: {command}")
+            lines.append(f"- Suggested: {command}")
         elif self.changed_files:
-            lines.append("Suggested verification: manually inspect the changed files")
+            lines.append("- Suggested: manually inspect the changed files")
         else:
-            lines.append("Suggested verification: not required")
+            lines.append("- Suggested: not required")
 
-        trace = self.format_trace_summary()
-        if trace:
-            lines.append("Trace summary:")
-            lines.extend(f"- {line}" for line in trace)
+        notes = self.format_trace_summary()
+        if notes:
+            lines.append("")
+            lines.append("Notes")
+            lines.extend(f"- {line}" for line in notes)
+        return "\n".join(lines)
+
+    def format_structured_output(self, results: list[str], executed_tickets: list[Ticket]) -> str:
+        lines = ["Result"]
+        if results:
+            lines.extend(results)
+        else:
+            lines.append("（无结果）")
+
+        plan = self.format_plan_summary(executed_tickets)
+        if plan:
+            lines.append(plan.lstrip())
+
+        lines.append(self.format_task_summary().lstrip())
         return "\n".join(lines)
 
     def format_plan_summary(self, tasks: list[Ticket]) -> str:
@@ -661,7 +665,7 @@ class Supervisor:
             response = self.worker.execute_ticket(ticket, model=model, on_step=self._worker_on_step)
             result = f"[{ticket.ticket_id}] {response}"
             self._transition(SupervisorState.REVIEWING)
-            final_result = result + self.format_verification_suggestion() + self.format_task_summary()
+            final_result = self.format_structured_output([result], [ticket])
             self.memory.record_decision("final_result", _truncate(final_result, 240))
             self.complete_ticket(ticket, final_result)
             self.state_manager.save_audit_log(self.worker.harness.audit_log)
@@ -1003,10 +1007,7 @@ class Supervisor:
                 parent_ticket.log.append(f"达到 Supervisor 最大循环次数 {MAX_SUPERVISOR_ITERATIONS}")
 
             self._transition(SupervisorState.REVIEWING)
-            final_result = "\n\n".join(results) if results else "（无结果）"
-            final_result += self.format_plan_summary(executed_tickets)
-            final_result += self.format_verification_suggestion()
-            final_result += self.format_task_summary()
+            final_result = self.format_structured_output(results, executed_tickets)
             self.memory.record_decision("final_result", _truncate(final_result, 240))
             self.complete_ticket(parent_ticket, final_result)
             self.state_manager.save_audit_log(self.worker.harness.audit_log)

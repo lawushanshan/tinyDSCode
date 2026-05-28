@@ -93,6 +93,8 @@ DeepSeek> /tickets
 DeepSeek> exit
 ```
 
+任务完成后会按固定结构输出 `Result`、`Plan`、`Changes`、`Tests` 和 `Notes`，便于快速查看执行结果、变更文件、建议验证命令和最近执行轨迹。
+
 ### 工具能力
 
 Worker 可以通过 function calling 调用以下工具：

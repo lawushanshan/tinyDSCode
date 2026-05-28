@@ -82,18 +82,6 @@ def test_after_tool_call_collects_changed_files(tmp_path: Path) -> None:
     assert supervisor.changed_files == ["src/app.py"]
 
 
-def test_format_verification_suggestion_for_python_changes() -> None:
-    supervisor = Supervisor()
-    supervisor.changed_files = ["src/app.py", "README.md"]
-
-    suggestion = supervisor.format_verification_suggestion()
-
-    assert "建议验证" in suggestion
-    assert "src/app.py" in suggestion
-    assert "README.md" in suggestion
-    assert "pytest -q" in suggestion
-
-
 def test_format_task_summary_with_changes_and_trace(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     target = tmp_path / "summary.py"
@@ -110,11 +98,11 @@ def test_format_task_summary_with_changes_and_trace(tmp_path: Path) -> None:
 
     summary = supervisor.format_task_summary()
 
-    assert "Task Summary" in summary
-    assert "Changed files:" in summary
+    assert "Changes" in summary
     assert "summary.py" in summary
-    assert "Suggested verification: pytest -q" in summary
-    assert "Trace summary:" in summary
+    assert "Tests" in summary
+    assert "Suggested: pytest -q" in summary
+    assert "Notes" in summary
     assert "loop 1; tools=write_file" in summary
     assert "loop 2; done=assistant_final" in summary
 
@@ -124,10 +112,28 @@ def test_format_task_summary_without_changes() -> None:
 
     summary = supervisor.format_task_summary()
 
-    assert "Task Summary" in summary
-    assert "Changed files: none" in summary
-    assert "Suggested verification: not required" in summary
-    assert "Trace summary:" not in summary
+    assert "Changes" in summary
+    assert "- none" in summary
+    assert "Tests" in summary
+    assert "Suggested: not required" in summary
+    assert "Notes" not in summary
+
+
+def test_format_structured_output_sections(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("结构化输出")
+    supervisor.changed_files = ["src/app.py"]
+    supervisor.worker.last_steps = []
+
+    output = supervisor.format_structured_output([f"[{ticket.ticket_id}] 完成"], [ticket])
+
+    assert output.startswith("Result")
+    assert "[T-001] 完成" in output
+    assert "Changes" in output
+    assert "- src/app.py" in output
+    assert "Tests" in output
+    assert "Suggested: pytest -q" in output
+    assert "建议验证" not in output
 
 
 def test_format_plan_summary_for_multiple_tickets() -> None:
@@ -843,9 +849,12 @@ def test_handle_prompt_appends_verification_suggestion(tmp_path: Path) -> None:
     response = supervisor.handle_prompt("创建 Python 文件", model="mock")
 
     assert "已完成" in response
-    assert "建议验证" in response
+    assert "Result" in response
+    assert "Changes" in response
+    assert "Tests" in response
     assert "pytest -q" in response
     assert "generated.py" in response
+    assert response.count("pytest -q") == 1
 
 
 def test_state_transitions() -> None:
