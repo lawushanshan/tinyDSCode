@@ -621,11 +621,18 @@ class Supervisor:
         summary: list[str] = []
         for entry in audit_log[-max_entries:]:
             action = str(entry.get("action", "unknown"))
-            if action == "tool_call":
+            if action == "tool_result":
                 tool = entry.get("tool", "unknown")
-                ok = entry.get("ok")
+                structured = entry.get("structured")
+                ok = structured.get("ok") if isinstance(structured, dict) else True
                 status = "ok" if ok else "failed"
                 summary.append(f"{tool} [{status}]")
+            elif action == "tool_error":
+                tool = entry.get("tool", "unknown")
+                summary.append(f"{tool} [error]")
+            elif action == "tool_call":
+                tool = entry.get("tool", "unknown")
+                summary.append(f"{tool} [called]")
             elif action == "permission_request":
                 operation = entry.get("operation", "unknown")
                 approval = entry.get("approval", "unknown")

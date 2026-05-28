@@ -193,8 +193,10 @@ def test_format_report_for_successful_ticket_with_audit(tmp_path: Path) -> None:
     ticket.updated_at = datetime.now(timezone.utc)
     supervisor.changed_files = ["src/app.py"]
     supervisor.state_manager.save_audit_log([
-        {"action": "tool_call", "tool": "read_file", "ok": True},
-        {"action": "tool_call", "tool": "apply_patch", "ok": True},
+        {"action": "tool_call", "tool": "read_file", "arguments": {"path": "src/app.py"}},
+        {"action": "tool_result", "tool": "read_file", "structured": {"ok": True}},
+        {"action": "tool_error", "tool": "apply_patch", "error": "[ERROR] failed"},
+        {"action": "permission_request", "operation": "shell", "approval": False, "risk": "high"},
     ])
     supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
 
@@ -206,7 +208,9 @@ def test_format_report_for_successful_ticket_with_audit(tmp_path: Path) -> None:
     assert "- src/app.py" in report
     assert "Suggested: pytest -q" in report
     assert "Checkpoint" in report
-    assert "apply_patch [ok]" in report
+    assert "read_file [ok]" in report
+    assert "apply_patch [error]" in report
+    assert "permission shell: False, risk=high" in report
 
 
 def test_format_report_recovers_changed_files_from_persisted_result(tmp_path: Path) -> None:
