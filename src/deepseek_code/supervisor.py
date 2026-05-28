@@ -614,6 +614,24 @@ class Supervisor:
                     files.append(path)
         return files
 
+    def outcome_for_report(self, ticket: Ticket, max_lines: int = 3) -> list[str]:
+        if not ticket.result:
+            return []
+        lines = ticket.result.splitlines()
+        try:
+            start = lines.index("Result") + 1
+        except ValueError:
+            return [_truncate(ticket.result, 240)]
+        outcome: list[str] = []
+        for line in lines[start:]:
+            if line in {"Plan", "Changes", "Tests", "Notes", "Checkpoint", "Trace", "Audit", "Next steps"}:
+                break
+            if line.strip():
+                outcome.append(_truncate(line.strip(), 240))
+            if len(outcome) >= max_lines:
+                break
+        return outcome
+
     def format_audit_summary(self, max_entries: int = 5) -> list[str]:
         audit_log = self.state_manager.load_audit_log()
         if not audit_log:
@@ -659,6 +677,11 @@ class Supervisor:
             f"Ticket: {ticket.ticket_id} ({ticket.status})",
             f"Description: {ticket.description}",
         ])
+        outcome = self.outcome_for_report(ticket)
+        if outcome:
+            lines.append("")
+            lines.append("Outcome")
+            lines.extend(f"- {item}" for item in outcome)
         plan_tickets = self.planned_tickets_for_report(ticket)
         if len(plan_tickets) > 1:
             lines.append("")

@@ -148,6 +148,7 @@ Implementation notes:
 - `/report` shows child Ticket plans when a task was split into subtasks.
 - `/report` can recover changed files from persisted Ticket results after process restart.
 - `/report` audit summaries use `tool_result`/`tool_error` entries so tool statuses match the persisted audit log.
+- `/report` includes a compact Outcome section extracted from persisted Ticket results for issue or commit-note reuse.
 
 ## Iteration 6: Persistent Session Notes
 

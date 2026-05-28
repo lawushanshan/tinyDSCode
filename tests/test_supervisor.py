@@ -236,6 +236,39 @@ def test_format_report_recovers_changed_files_from_persisted_result(tmp_path: Pa
     assert "Suggested: pytest -q" in report
 
 
+def test_format_report_includes_outcome_from_result(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("结果摘要")
+    ticket.status = "done"
+    ticket.result = "\n".join([
+        "Result",
+        "[T-001] 完成主要逻辑",
+        "额外说明",
+        "Changes",
+        "- README.md",
+    ])
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "Outcome" in report
+    assert "- [T-001] 完成主要逻辑" in report
+    assert "- 额外说明" in report
+
+
+def test_format_report_includes_outcome_from_legacy_result(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("旧结果")
+    ticket.status = "done"
+    ticket.result = "旧格式结果文本"
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "Outcome" in report
+    assert "- 旧格式结果文本" in report
+
+
 def test_format_report_for_failed_ticket_suggests_next_steps(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     ticket = supervisor.create_ticket("失败任务")
