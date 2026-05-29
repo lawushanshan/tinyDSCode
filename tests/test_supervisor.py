@@ -128,6 +128,14 @@ def test_format_task_summary_with_changes_and_trace(tmp_path: Path) -> None:
     assert "loop 2; done=assistant_final" in summary
 
 
+def test_format_file_reference_normalizes_project_absolute_path(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    target = tmp_path / "src" / "app.py"
+
+    assert supervisor.format_file_reference(str(target), line=12) == "src/app.py:12"
+    assert supervisor.format_file_reference("tests/test_app.py") == "tests/test_app.py"
+
+
 def test_format_task_summary_without_changes() -> None:
     supervisor = Supervisor()
 
@@ -1184,6 +1192,26 @@ def test_format_context_without_project_context() -> None:
     supervisor.memory.set_project_context("")
 
     assert supervisor.format_context() == "当前没有项目上下文"
+
+
+def test_refresh_editor_context_from_environment(tmp_path: Path, monkeypatch) -> None:
+    current_file = tmp_path / "src" / "app.py"
+    current_file.parent.mkdir()
+    current_file.write_text("print('hi')\n", encoding="utf-8")
+    monkeypatch.setenv("DEEPSEEK_CODE_CURRENT_FILE", str(current_file))
+    monkeypatch.setenv("DEEPSEEK_CODE_CURRENT_LINE", "7")
+    monkeypatch.setenv("DEEPSEEK_CODE_SELECTION", "print('hi')")
+    monkeypatch.setenv("DEEPSEEK_CODE_SELECTION_START_LINE", "7")
+    monkeypatch.setenv("DEEPSEEK_CODE_SELECTION_END_LINE", "7")
+
+    supervisor = Supervisor(state_root=str(tmp_path))
+
+    context = supervisor.memory.editor_context
+    assert "Editor Context" in context
+    assert "current_file: src/app.py:7" in context
+    assert "selection: src/app.py:7-7" in context
+    assert "print('hi')" in context
+    assert "Editor Context" in supervisor.format_context()
 
 
 def test_refresh_project_context_updates_repo_map(tmp_path: Path) -> None:

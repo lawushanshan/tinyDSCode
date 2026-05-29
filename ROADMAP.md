@@ -262,18 +262,26 @@ Implementation notes:
 
 Objective: start connecting the CLI workflow to editor-centric usage without committing to a full IDE plugin.
 
-Status: planned.
+Status: done for the current CLI-compatible editor context scope.
 
 Planned work:
 
-- Improve file/line references in outputs so editors can navigate them easily.
-- Add lightweight current-file or selected-file context hooks if available from the calling environment.
-- Keep the first version CLI-compatible; editor integrations should consume existing commands and reports.
+- Improve file/line references in outputs so editors can navigate them easily. (Done)
+- Add lightweight current-file or selected-file context hooks if available from the calling environment. (Done)
+- Keep the first version CLI-compatible; editor integrations should consume existing commands and reports. (Done)
 
 Definition of done:
 
 - Output paths are consistently useful for opening files from an editor or terminal.
 - The integration path is documented without requiring a specific editor extension yet.
+
+Implementation notes:
+
+- Changed-file summaries now normalize absolute project paths to relative references and support `path:line` formatting internally.
+- `MemoryManager` accepts an optional Editor Context system section.
+- `Supervisor` reads `DEEPSEEK_CODE_CURRENT_FILE`, `DEEPSEEK_CODE_CURRENT_LINE`, `DEEPSEEK_CODE_SELECTION`, `DEEPSEEK_CODE_SELECTION_FILE`, `DEEPSEEK_CODE_SELECTION_START_LINE`, and `DEEPSEEK_CODE_SELECTION_END_LINE`.
+- `/context` includes Editor Context when those environment variables are present.
+- This is intentionally CLI-compatible; future IDE plugins can set the same environment variables before invoking `deepseek-code`.
 
 ## Longer-Term Direction
 

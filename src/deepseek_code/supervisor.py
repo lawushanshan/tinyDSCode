@@ -1,6 +1,7 @@
 from __future__ import annotations
 import difflib
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -79,6 +80,7 @@ class Supervisor:
                                interactive=interactive)
         self.memory = MemoryManager()
         self.refresh_project_context()
+        self.refresh_editor_context()
         self.llm_service = LLMService(env=llm_env)
         self.worker = Worker(harness=self.harness, llm_service=self.llm_service, memory=self.memory)
         self.tickets: List[Ticket] = []
@@ -431,10 +433,27 @@ class Supervisor:
     def _project_has_glob(self, pattern: str) -> bool:
         return any(self.state_manager.project_root.glob(pattern))
 
+    def format_file_reference(self, raw_path: str, line: int | None = None) -> str:
+        path = Path(raw_path)
+        root = self.state_manager.project_root.resolve()
+        if path.is_absolute():
+            try:
+                path_text = path.resolve().relative_to(root).as_posix()
+            except ValueError:
+                path_text = str(path)
+        else:
+            path_text = path.as_posix()
+        if line is not None and line > 0:
+            return f"{path_text}:{line}"
+        return path_text
+
+    def _format_file_list(self, paths: list[str]) -> list[str]:
+        return [f"- {self.format_file_reference(path)}" for path in paths]
+
     def format_task_summary(self) -> str:
         lines = ["\n\nChanges"]
         if self.changed_files:
-            lines.extend(f"- {path}" for path in self.changed_files)
+            lines.extend(self._format_file_list(self.changed_files))
         else:
             lines.append("- none")
 
@@ -714,7 +733,7 @@ class Supervisor:
         report_changed_files = self.changed_files_for_report(ticket)
         lines.extend(["", "Changes"])
         if report_changed_files:
-            lines.extend(f"- {path}" for path in report_changed_files)
+            lines.extend(self._format_file_list(report_changed_files))
         else:
             lines.append("- none tracked in this session")
 
@@ -825,7 +844,7 @@ class Supervisor:
         lines.append("")
         lines.append("Changes")
         if changed_files:
-            lines.extend(f"- {path}" for path in changed_files)
+            lines.extend(self._format_file_list(changed_files))
         elif is_git_repo and status_lines:
             lines.extend(f"- {line}" for line in status_lines[:20])
             if len(status_lines) > 20:
@@ -1170,9 +1189,46 @@ class Supervisor:
         self.memory.set_project_context(context)
         return context
 
+    def _editor_path_to_reference(self, raw_path: str, raw_line: str | None = None) -> str | None:
+        if not raw_path.strip():
+            return None
+        try:
+            line = int(raw_line) if raw_line else None
+        except ValueError:
+            line = None
+        return self.format_file_reference(raw_path, line=line)
+
+    def refresh_editor_context(self) -> str:
+        current_file = os.getenv("DEEPSEEK_CODE_CURRENT_FILE") or os.getenv("DEEPSEEK_CODE_FILE")
+        current_line = os.getenv("DEEPSEEK_CODE_CURRENT_LINE") or os.getenv("DEEPSEEK_CODE_LINE")
+        selection = os.getenv("DEEPSEEK_CODE_SELECTION", "")
+        selection_file = os.getenv("DEEPSEEK_CODE_SELECTION_FILE", "")
+        selection_start = os.getenv("DEEPSEEK_CODE_SELECTION_START_LINE", "")
+        selection_end = os.getenv("DEEPSEEK_CODE_SELECTION_END_LINE", "")
+
+        lines = ["## Editor Context"]
+        current_ref = self._editor_path_to_reference(current_file or "", current_line)
+        if current_ref:
+            lines.append(f"- current_file: {current_ref}")
+        selection_ref = self._editor_path_to_reference(selection_file or (current_file or ""), selection_start)
+        if selection_ref and selection:
+            suffix = f"-{selection_end}" if selection_end.strip() else ""
+            lines.append(f"- selection: {selection_ref}{suffix}")
+            lines.append("```")
+            lines.append(_truncate(selection, 1200))
+            lines.append("```")
+        if len(lines) == 1:
+            self.memory.set_editor_context("")
+            return ""
+        context = "\n".join(lines)
+        self.memory.set_editor_context(context)
+        return context
+
     def format_context(self) -> str:
         if not self.memory.project_context:
             return "当前没有项目上下文"
+        if self.memory.editor_context:
+            return f"{self.memory.project_context}\n\n{self.memory.editor_context}"
         return self.memory.project_context
 
     def format_status(self) -> str:

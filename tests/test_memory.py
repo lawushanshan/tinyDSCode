@@ -79,6 +79,18 @@ def test_build_messages_includes_project_context() -> None:
     assert "src/app.py" in messages[1]["content"]
 
 
+def test_build_messages_includes_editor_context() -> None:
+    memory = MemoryManager()
+    memory.set_editor_context("## Editor Context\n- current_file: src/app.py:12")
+
+    messages = memory.build_messages()
+
+    assert len(messages) == 2
+    assert messages[1]["role"] == "system"
+    assert "Editor Context" in messages[1]["content"]
+    assert "src/app.py:12" in messages[1]["content"]
+
+
 def test_build_messages_includes_recent_decisions() -> None:
     memory = MemoryManager()
     memory.record_decision("plan", "read file -> patch file")

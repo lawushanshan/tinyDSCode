@@ -34,6 +34,13 @@ setx OPENAI_API_KEY "your_openai_key"
 # 可选
 setx DEEPSEEK_API_BASE "https://api.deepseek.com"
 
+# 可选：编辑器/IDE 调用时注入当前文件上下文
+setx DEEPSEEK_CODE_CURRENT_FILE "src/app.py"
+setx DEEPSEEK_CODE_CURRENT_LINE "12"
+setx DEEPSEEK_CODE_SELECTION "selected code text"
+setx DEEPSEEK_CODE_SELECTION_START_LINE "12"
+setx DEEPSEEK_CODE_SELECTION_END_LINE "18"
+
 # 临时生效（仅当前终端）
 set DEEPSEEK_API_KEY=your_key
 ```

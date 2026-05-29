@@ -9,6 +9,7 @@ class MemoryManager:
         self.history: list[dict[str, str]] = []
         self.max_context_tokens = max_context_tokens
         self.project_context: str = ""
+        self.editor_context: str = ""
         self.recent_decisions: list[str] = []
         self.session_notes: list[str] = []
 
@@ -26,6 +27,9 @@ class MemoryManager:
 
     def set_project_context(self, content: str) -> None:
         self.project_context = content.strip()
+
+    def set_editor_context(self, content: str) -> None:
+        self.editor_context = content.strip()
 
     def record_decision(self, label: str, detail: str) -> None:
         entry = f"{label}: {detail}".strip()
@@ -155,6 +159,8 @@ class MemoryManager:
         ]
         if self.project_context:
             messages.append({"role": "system", "content": self.project_context})
+        if self.editor_context:
+            messages.append({"role": "system", "content": self.editor_context})
         if self.recent_decisions:
             recent = "\n".join(f"- {item}" for item in self.recent_decisions[-8:])
             messages.append({"role": "system", "content": f"## Recent Decisions\n{recent}"})
