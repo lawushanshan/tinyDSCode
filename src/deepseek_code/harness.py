@@ -51,10 +51,14 @@ class Harness:
         destructive_patterns = (
             r"\brm\s+.*(-r|-f|/)",
             r"\bdel\s+",
+            r"\berase\s+",
             r"\brmdir\s+",
+            r"\brd\s+",
             r"\bremove-item\b",
             r"\bgit\s+reset\b",
             r"\bgit\s+clean\b",
+            r"\bgit\s+restore\b",
+            r"\bgit\s+checkout\s+(?:--|\.)",
             r"\bformat\b",
         )
         network_patterns = (
@@ -64,13 +68,35 @@ class Harness:
             r"\binvoke-restmethod\b",
             r"\bssh\b",
             r"\bscp\b",
+            r"\bgit\s+(?:pull|push|fetch|clone)\b",
         )
         install_patterns = (
             r"\bnpm\s+install\b",
+            r"\bnpm\s+ci\b",
+            r"\byarn\s+(?:add|install)\b",
+            r"\bpnpm\s+(?:add|install)\b",
+            r"\bbun\s+(?:add|install)\b",
             r"\bpip\s+install\b",
+            r"\bpip\s+uninstall\b",
+            r"\buv\s+sync\b",
             r"\buv\s+add\b",
+            r"\bpoetry\s+install\b",
             r"\bpoetry\s+add\b",
             r"\bcargo\s+install\b",
+            r"\bcargo\s+update\b",
+        )
+        long_running_patterns = (
+            r"\bnpm\s+run\s+dev\b",
+            r"\bpnpm\s+dev\b",
+            r"\byarn\s+dev\b",
+            r"\bbun\s+dev\b",
+            r"\bnext\s+dev\b",
+            r"\bvite\b",
+            r"\buvicorn\b",
+            r"\bgunicorn\b",
+            r"\bflask\s+run\b",
+            r"\bpython\s+-m\s+http\.server\b",
+            r"\bdocker\s+compose\s+up\b",
         )
 
         for pattern in destructive_patterns:
@@ -85,8 +111,14 @@ class Harness:
             if re.search(pattern, normalized):
                 reasons.append("可能安装依赖或修改环境")
                 break
+        for pattern in long_running_patterns:
+            if re.search(pattern, normalized):
+                reasons.append("May start a long-running process or development server.")
+                break
         if re.search(r"\b(setx|export)\b", normalized):
             reasons.append("可能修改环境变量")
+        if re.search(r"(^|[^<])>>?($|[^>])", command):
+            reasons.append("May write to files through shell redirection.")
         if any(operator in command for operator in ("|", "&&", "||", ";")):
             reasons.append("包含管道或多段命令，实际执行范围更大")
 
@@ -96,7 +128,7 @@ class Harness:
             return "medium", reasons
         return "low", ["未检测到明显高风险操作"]
 
-    def request_permission(self, action: str, detail: str = "") -> bool:
+    def request_permission(self, action: str, detail: str = "", cwd: str | None = None) -> bool:
         if self.allowed_actions.get(action, False):
             return True
         label = action
@@ -107,11 +139,21 @@ class Harness:
             self.console.print(f"[yellow]需要人工确认以执行 shell 命令[/yellow]")
             self.console.print(f"[bold]风险等级:[/bold] {risk}")
             self.console.print(f"[bold]原因:[/bold] {'；'.join(reasons)}")
+            if cwd:
+                self.console.print(f"[bold]Working directory:[/bold] {cwd}")
             self.console.print(f"[bold]命令:[/bold] {detail}")
         else:
             self.console.print(f"[yellow]需要人工确认以执行 {label}[/yellow]")
         result = Confirm.ask(f"是否允许执行？")
-        entry = {"action": "permission_request", "operation": action, "detail": detail, "approval": result}
+        entry = {
+            "action": "permission_request",
+            "operation": action,
+            "detail": detail,
+            "approval": result,
+            "outcome": "approved" if result else "denied",
+        }
+        if cwd:
+            entry["cwd"] = cwd
         if action == "shell":
             risk, reasons = self.assess_shell_risk(detail)
             entry["risk"] = risk
@@ -123,11 +165,17 @@ class Harness:
     def execute_tool_call_structured(self, tool_call: ToolCall) -> ToolResult:
         tool_name = tool_call.name
         args = tool_call.arguments
-        self.audit_log.append({
+        call_entry = {
             "action": "tool_call",
             "tool": tool_name,
             "arguments": args,
-        })
+        }
+        if tool_name == "run_shell":
+            command = str(args.get("command", ""))
+            risk, reasons = self.assess_shell_risk(command)
+            call_entry["risk"] = risk
+            call_entry["risk_reasons"] = reasons
+        self.audit_log.append(call_entry)
         self.state_manager.save_audit_log(self.audit_log)
         try:
             result = self.perform_action(action=tool_name, **args)
@@ -305,10 +353,10 @@ class Harness:
         if action == "run_shell":
             if command is None:
                 raise ValueError("run_shell 需要 command")
-            if not self.request_permission("shell", detail=command):
+            resolved_cwd = self._resolve_project_path(cwd or ".")
+            if not self.request_permission("shell", detail=command, cwd=resolved_cwd):
                 raise PermissionError("已拒绝 shell 执行权限")
             from .tools import Tools
-            resolved_cwd = self._resolve_project_path(cwd or ".")
             timeout = self._normalize_timeout_seconds(timeout_seconds)
             return Tools.run_shell(command=command, cwd=resolved_cwd, timeout_seconds=timeout)
 

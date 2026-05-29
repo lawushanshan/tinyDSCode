@@ -250,6 +250,21 @@ def test_assess_shell_risk_medium_for_network_and_compound_command() -> None:
     assert "包含管道或多段命令，实际执行范围更大" in reasons
 
 
+def test_assess_shell_risk_medium_for_install_long_running_and_redirection() -> None:
+    harness = Harness()
+
+    install_risk, install_reasons = harness.assess_shell_risk("pnpm install")
+    server_risk, server_reasons = harness.assess_shell_risk("npm run dev")
+    redirect_risk, redirect_reasons = harness.assess_shell_risk("echo ok > output.txt")
+
+    assert install_risk == "medium"
+    assert "可能安装依赖或修改环境" in install_reasons
+    assert server_risk == "medium"
+    assert "May start a long-running process or development server." in server_reasons
+    assert redirect_risk == "medium"
+    assert "May write to files through shell redirection." in redirect_reasons
+
+
 def test_assess_shell_risk_high_for_destructive_command() -> None:
     harness = Harness()
 
@@ -270,7 +285,35 @@ def test_shell_permission_records_risk_metadata(tmp_path: Path) -> None:
     assert persisted[-1]["action"] == "permission_request"
     assert persisted[-1]["operation"] == "shell"
     assert persisted[-1]["risk"] == "high"
+    assert persisted[-1]["outcome"] == "denied"
     assert "可能删除文件、重置代码或破坏工作区" in persisted[-1]["risk_reasons"]
+
+
+def test_shell_permission_records_working_directory(tmp_path: Path) -> None:
+    harness = Harness(state_root=str(tmp_path), interactive=True)
+
+    with patch("deepseek_code.harness.Confirm.ask", return_value=True):
+        allowed = harness.request_permission("shell", detail="pytest -q", cwd=str(tmp_path))
+
+    persisted = harness.state_manager.load_audit_log()
+    assert allowed is True
+    assert persisted[-1]["outcome"] == "approved"
+    assert persisted[-1]["cwd"] == str(tmp_path)
+
+
+def test_run_shell_tool_call_records_risk_metadata(tmp_path: Path) -> None:
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry, interactive=False)
+    tc = ToolCall(id="call_shell_risk", name="run_shell", arguments={"command": "git fetch"})
+
+    result = harness.execute_tool_call_structured(tc)
+
+    persisted = harness.state_manager.load_audit_log()
+    assert result.ok in {True, False}
+    assert persisted[0]["action"] == "tool_call"
+    assert persisted[0]["tool"] == "run_shell"
+    assert persisted[0]["risk"] == "medium"
+    assert "可能访问网络或远程主机" in persisted[0]["risk_reasons"]
 
 
 def test_execute_tool_call_read_file(tmp_path: Path) -> None:

@@ -213,6 +213,53 @@ def test_format_report_for_successful_ticket_with_audit(tmp_path: Path) -> None:
     assert "permission shell: False, risk=high" in report
 
 
+def test_format_report_shell_audit_distinguishes_permission_and_result(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("shell audit")
+    ticket.status = "done"
+    ticket.updated_at = datetime.now(timezone.utc)
+    supervisor.state_manager.save_audit_log([
+        {
+            "action": "tool_call",
+            "tool": "run_shell",
+            "arguments": {"command": "pytest -q"},
+            "risk": "low",
+            "risk_reasons": ["none"],
+        },
+        {
+            "action": "permission_request",
+            "operation": "shell",
+            "detail": "pytest -q",
+            "approval": True,
+            "outcome": "approved",
+            "risk": "low",
+            "cwd": str(tmp_path),
+        },
+        {
+            "action": "tool_result",
+            "tool": "run_shell",
+            "structured": {"ok": True, "exit_code": 0},
+        },
+        {
+            "action": "permission_request",
+            "operation": "shell",
+            "detail": "rm -rf build",
+            "approval": False,
+            "outcome": "denied",
+            "risk": "high",
+            "cwd": str(tmp_path),
+        },
+    ])
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "run_shell [called, risk=low]" in report
+    assert f"permission shell: approved, risk=low, cwd={tmp_path}" in report
+    assert "run_shell [ok, exit=0]" in report
+    assert f"permission shell: denied, risk=high, cwd={tmp_path}" in report
+
+
 def test_format_report_recovers_changed_files_from_persisted_result(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     ticket = supervisor.create_ticket("持久化报告")

@@ -647,19 +647,35 @@ class Supervisor:
                 structured = entry.get("structured")
                 ok = structured.get("ok") if isinstance(structured, dict) else True
                 status = "ok" if ok else "failed"
-                summary.append(f"{tool} [{status}]")
+                if tool == "run_shell":
+                    exit_code = structured.get("exit_code") if isinstance(structured, dict) else None
+                    exit_text = f", exit={exit_code}" if exit_code is not None else ""
+                    summary.append(f"run_shell [{status}{exit_text}]")
+                else:
+                    summary.append(f"{tool} [{status}]")
             elif action == "tool_error":
                 tool = entry.get("tool", "unknown")
-                summary.append(f"{tool} [error]")
+                if tool == "run_shell":
+                    summary.append("run_shell [error]")
+                else:
+                    summary.append(f"{tool} [error]")
             elif action == "tool_call":
                 tool = entry.get("tool", "unknown")
-                summary.append(f"{tool} [called]")
+                if tool == "run_shell":
+                    risk = entry.get("risk")
+                    risk_text = f", risk={risk}" if risk else ""
+                    summary.append(f"run_shell [called{risk_text}]")
+                else:
+                    summary.append(f"{tool} [called]")
             elif action == "permission_request":
                 operation = entry.get("operation", "unknown")
-                approval = entry.get("approval", "unknown")
+                outcome = entry.get("outcome")
+                approval = outcome if outcome else entry.get("approval", "unknown")
                 risk = entry.get("risk")
                 risk_text = f", risk={risk}" if risk else ""
-                summary.append(f"permission {operation}: {approval}{risk_text}")
+                cwd = entry.get("cwd")
+                cwd_text = f", cwd={cwd}" if cwd else ""
+                summary.append(f"permission {operation}: {approval}{risk_text}{cwd_text}")
             elif action == "log":
                 summary.append(str(entry.get("message", "log")))
             else:
