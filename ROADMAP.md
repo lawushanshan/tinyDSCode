@@ -25,6 +25,37 @@ The goal is not a generic chat CLI. The goal is an agentic coding loop with thes
 - Persistence: `src/deepseek_code/persistence.py`
 - Evaluation harness: `src/deepseek_code/eval/`
 
+## Current Capability Baseline
+
+Iterations 1-10 are complete for the current single-worker CLI scope. The current product baseline includes:
+
+- Ticket-driven task execution with planning, continuation, revision, cancellation, and recovery.
+- Repo Map project understanding with language, package manager, test command, entry point, and Python symbol summaries.
+- Guarded tool execution through Harness, including structured audit logs and interactive shell approval.
+- Changed-file tracking, targeted verification suggestions, `/diff`, `/verify`, `/checkpoint`, `/rollback`, `/report`, and `/review`.
+- Persistent local state under `.harness_state/`: Tickets, audit log, supervisor state, and session notes.
+- Resume context injection for failed, blocked, and recovered-running Tickets.
+- CLI-compatible editor context hooks through `DEEPSEEK_CODE_CURRENT_FILE`, line, and selection environment variables.
+
+## v0.2 Focus: Reliability and User-Facing Polish
+
+The next phase should stabilize the current single-worker product before adding larger architecture changes.
+
+Priority work:
+
+- Clean user-facing text: README, CLAUDE guidance, architecture docs, CLI prompts, system prompts, and test fixtures where feasible.
+- Run real REPL dogfood tests with an API key: `run`, `repl`, shell approval allow/deny, `/verify`, `/review`, `/continue`, and editor context.
+- Tighten shell safety and audit UX based on manual testing feedback.
+- Improve failure recovery messages and reduce repeated failure paths in resumed Tickets.
+- Keep outputs stable and copy/paste friendly for issue notes and commit summaries.
+
+Definition of done:
+
+- User-facing docs and common CLI flows are readable UTF-8.
+- Full test suite passes.
+- A documented manual REPL test pass covers one successful task, one denied shell command, one verification run, and one recovery flow.
+- Any discovered UX gaps are either fixed or captured as follow-up work.
+
 ## Iteration 1: Reliable Single-Task Coding Loop (Done)
 
 Objective: make one coding task run end-to-end reliably in the style of a small Claude Code session.
@@ -183,15 +214,15 @@ Implementation notes:
 
 Objective: make real project usage safer by improving how shell execution, approvals, and audit feedback communicate risk before anything potentially impactful runs.
 
-Status: next.
+Status: done for the current safer shell approval and audit UX scope.
 
 Planned work:
 
-- Review current Harness approval flow for `run_shell`, including risk labels, risk reasons, working directory, and command text.
-- Make approve/deny outcomes easier to inspect in the audit log and `/report`.
-- Strengthen classification for destructive, network, git, package-manager, and long-running commands without blocking low-risk read-only commands unnecessarily.
-- Add clearer user-facing confirmation text so manual testers can understand what they are approving.
-- Keep all destructive git operations manual; do not add automatic rollback or reset behavior.
+- Review current Harness approval flow for `run_shell`, including risk labels, risk reasons, working directory, and command text. (Done)
+- Make approve/deny outcomes easier to inspect in the audit log and `/report`. (Done)
+- Strengthen classification for destructive, network, git, package-manager, and long-running commands without blocking low-risk read-only commands unnecessarily. (Done)
+- Add clearer user-facing confirmation text so manual testers can understand what they are approving. (Done)
+- Keep all destructive git operations manual; do not add automatic rollback or reset behavior. (Done)
 
 Definition of done:
 
@@ -206,6 +237,8 @@ Implementation notes:
 - Prefer incremental improvements to the existing Harness instead of adding a separate policy engine.
 - Keep prompts concise: command purpose, working directory, risk level, risk reasons, and approve/deny choices.
 - Treat command safety as explainability first; hard blocking can be added later for clearly destructive patterns.
+- First pass records shell `outcome`, `risk`, `risk_reasons`, `cwd`, tool result status, and exit code where available.
+- `/report` audit summaries distinguish shell approval, denial, success, failure, and error states.
 
 ## Iteration 8: Pre-Commit Review and Change Summary
 
