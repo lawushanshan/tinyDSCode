@@ -962,6 +962,8 @@ def test_format_ticket_detail_for_existing_ticket() -> None:
     assert "描述: 检查登录逻辑" in detail
     assert "验收标准: 通过测试" in detail
     assert "- 定位 auth.ts" in detail
+    assert "Resume Context" in detail
+    assert "/continue T-001" in detail
 
 
 def test_format_ticket_detail_for_missing_ticket() -> None:
@@ -1065,6 +1067,41 @@ def test_continue_ticket_rejects_cancelled_ticket() -> None:
     assert result == "Ticket T-001 已取消，不能继续执行"
 
 
+def test_build_resume_context_for_failed_ticket_includes_reason_and_next_action(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("fix parser")
+    ticket.status = "failed"
+    ticket.acceptance_criteria = "tests pass"
+    ticket.result = "previous failure"
+    ticket.log.extend(["read parser.py", "tool error: patch failed"])
+    supervisor.record_session_note("decision", "use apply_patch for existing files", source="T-001")
+
+    context = supervisor.build_resume_context(ticket)
+
+    assert "Resume Context" in context
+    assert "Ticket: T-001 (failed)" in context
+    assert "Objective: fix parser" in context
+    assert "Previous result: previous failure" in context
+    assert "tool error: patch failed" in context
+    assert "[decision] use apply_patch for existing files" in context
+    assert "avoid repeating failed steps" in context
+
+
+def test_format_resume_guidance_for_blocked_ticket() -> None:
+    supervisor = Supervisor()
+    ticket = supervisor.create_ticket("wait for approval")
+    ticket.status = "blocked"
+    ticket.log.append("shell permission denied")
+
+    guidance = supervisor.format_resume_guidance(ticket.ticket_id)
+
+    assert "Resume Context" in guidance
+    assert "Ticket: T-001 (blocked)" in guidance
+    assert "shell permission denied" in guidance
+    assert "/continue T-001" in guidance
+    assert "/revise T-001 <new description>" in guidance
+
+
 def test_run_existing_ticket_keeps_original_ticket_id() -> None:
     supervisor = Supervisor()
     ticket = supervisor.create_ticket("原始任务")
@@ -1078,6 +1115,29 @@ def test_run_existing_ticket_keeps_original_ticket_id() -> None:
     assert supervisor.tickets[0].status == "done"
     supervisor.worker.execute_ticket.assert_called_once()
     assert supervisor.worker.execute_ticket.call_args[0][0] is ticket
+
+
+def test_run_existing_ticket_injects_resume_context_before_worker() -> None:
+    supervisor = Supervisor()
+    ticket = supervisor.create_ticket("resume target")
+    ticket.status = "failed"
+    ticket.log.append("previous error")
+    captured_messages: list[list[dict[str, str]]] = []
+
+    def fake_execute(ticket_arg, model, on_step=None):
+        captured_messages.append(supervisor.memory.build_messages())
+        return "resumed"
+
+    supervisor.worker.execute_ticket = fake_execute
+
+    result = supervisor.run_existing_ticket(ticket, model="mock")
+
+    assert "[T-001] resumed" in result
+    assert any(
+        "Resume Context" in message["content"] and "previous error" in message["content"]
+        for message in captured_messages[0]
+    )
+    assert any("Resume context injected" in item for item in ticket.log)
 
 
 def test_continue_next_ticket_without_resumable_ticket() -> None:
@@ -1503,6 +1563,26 @@ def test_continue_ticket_resumes_recovered_running_ticket(tmp_path: Path) -> Non
     assert result == "继续完成"
     assert supervisor.tickets[0].status == "pending"
     supervisor.run_existing_ticket.assert_called_once_with(supervisor.tickets[0], model="mock")
+
+
+def test_recovered_running_ticket_has_resume_guidance(tmp_path: Path) -> None:
+    state_manager = StateManager(root=tmp_path)
+    state_manager.save_tickets([
+        {
+            "ticket_id": "T-001",
+            "status": "running",
+            "description": "interrupted task",
+            "log": ["started before crash"],
+        },
+    ])
+
+    supervisor = Supervisor(state_root=str(tmp_path))
+    guidance = supervisor.format_resume_guidance("T-001")
+
+    assert "Ticket: T-001 (blocked)" in guidance
+    assert "started before crash" in guidance
+    assert "上次中断" in guidance
+    assert "/continue T-001" in guidance
 
 
 def test_supervisor_persistence(tmp_path: Path) -> None:

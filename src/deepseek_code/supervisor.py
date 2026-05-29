@@ -1012,6 +1012,9 @@ class Supervisor:
         if logs:
             lines.append("日志:")
             lines.extend(f"- {item}" for item in logs)
+        if ticket.status in {"pending", "blocked", "failed"}:
+            lines.append("")
+            lines.append(self.format_resume_guidance(ticket.ticket_id))
         return "\n".join(lines)
 
     def revise_ticket(self, ticket_id: str, description: str) -> str:
@@ -1052,6 +1055,49 @@ class Supervisor:
             self._persist_tickets()
         return None
 
+    def build_resume_context(self, ticket: Ticket) -> str:
+        lines = [
+            "Resume Context",
+            f"- Ticket: {ticket.ticket_id} ({ticket.status})",
+            f"- Objective: {ticket.description}",
+        ]
+        if ticket.acceptance_criteria:
+            lines.append(f"- Acceptance criteria: {ticket.acceptance_criteria}")
+        if ticket.result:
+            lines.append(f"- Previous result: {_truncate(ticket.result, 500)}")
+        recent_logs = [item for item in ticket.log[-8:] if item.strip()]
+        if recent_logs:
+            lines.append("- Recent ticket log:")
+            lines.extend(f"  - {_truncate(item, 180)}" for item in recent_logs)
+        trace = self.format_trace_summary(max_steps=3)
+        if trace:
+            lines.append("- Recent trace:")
+            lines.extend(f"  - {item}" for item in trace)
+        notes = self.state_manager.load_session_notes()
+        if notes:
+            lines.append("- Relevant session notes:")
+            for note in notes[-3:]:
+                category = note.get("category", "general")
+                text = _truncate(str(note.get("text", "")), 180)
+                if text:
+                    lines.append(f"  - [{category}] {text}")
+        lines.append("- Next action: continue the same objective, avoid repeating failed steps, and explain any new blocker clearly.")
+        return "\n".join(lines)
+
+    def format_resume_guidance(self, ticket_id: str) -> str:
+        ticket = self.find_ticket(ticket_id)
+        if ticket is None:
+            return f"未找到 Ticket: {ticket_id}"
+        if ticket.status not in {"pending", "blocked", "failed"}:
+            return f"Ticket {ticket.ticket_id} 当前状态为 {ticket.status}，不需要恢复"
+        lines = [self.build_resume_context(ticket), "", "Suggested commands"]
+        lines.append(f"- /continue {ticket.ticket_id}")
+        if ticket.status in {"blocked", "failed"}:
+            lines.append(f"- /revise {ticket.ticket_id} <new description> if the original objective is stale")
+        lines.append("- /trace to inspect the last execution path")
+        lines.append("- /diff to inspect current file changes")
+        return "\n".join(lines)
+
     def run_existing_ticket(self, ticket: Ticket, model: str = "deepseek-v4-flash") -> str:
         self._reset_stale_running_state()
         self.current_constraints = self._parse_constraints(ticket.description)
@@ -1059,7 +1105,12 @@ class Supervisor:
         try:
             self._transition(SupervisorState.PLANNING)
             self._transition(SupervisorState.DISPATCHING)
+            resume_context = self.build_resume_context(ticket)
             self.start_ticket(ticket)
+            self.memory.append_system(resume_context)
+            ticket.log.append("Resume context injected before continuing")
+            ticket.updated_at = datetime.now(timezone.utc)
+            self._persist_tickets()
             self._transition(SupervisorState.WAITING_WORKER)
             response = self.worker.execute_ticket(ticket, model=model, on_step=self._worker_on_step)
             result = f"[{ticket.ticket_id}] {response}"

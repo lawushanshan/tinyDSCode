@@ -237,19 +237,26 @@ Implementation notes:
 
 Objective: make interrupted or failed work easier to resume without losing the original goal, trace, or last useful context.
 
-Status: planned.
+Status: done for the current single-worker recovery context scope.
 
 Planned work:
 
-- Improve `/continue` context by carrying forward the last failure reason, compact trace, relevant notes, and remaining objective.
-- Make blocked and failed Ticket recovery messages more actionable.
-- Preserve enough context for resumed work without replaying noisy worker logs.
+- Improve `/continue` context by carrying forward the last failure reason, compact trace, relevant notes, and remaining objective. (Done)
+- Make blocked and failed Ticket recovery messages more actionable. (Done)
+- Preserve enough context for resumed work without replaying noisy worker logs. (Done)
 
 Definition of done:
 
 - Resuming a failed or blocked Ticket gives the Worker enough context to avoid repeating the same failure.
 - Users can inspect why a Ticket is resumable and what the next suggested action is.
 - Tests cover failed, blocked, and recovered-running Ticket flows.
+
+Implementation notes:
+
+- `run_existing_ticket()` now injects a compact `Resume Context` into memory before the Worker resumes a Ticket.
+- `/ticket <id>` shows resume guidance for pending, blocked, and failed Tickets.
+- `format_resume_guidance()` explains the original objective, acceptance criteria, prior result, recent logs, compact trace, relevant session notes, and next commands.
+- Recovered stale `running` Tickets remain marked as `blocked` and now have inspectable resume guidance before `/continue`.
 
 ## Iteration 10: IDE/Editor Integration Seed
 
