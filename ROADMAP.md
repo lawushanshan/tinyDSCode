@@ -211,20 +211,27 @@ Implementation notes:
 
 Objective: turn the existing `/diff`, `/checkpoint`, `/verify`, and `/report` primitives into a reliable end-of-iteration review loop before the user commits changes.
 
-Status: planned.
+Status: done for the current read-only review scope.
 
 Planned work:
 
-- Add a concise pre-commit style summary that includes changed files, test results, unresolved risks, and suggested commit message.
-- Reuse existing read-only git helpers; do not auto-commit.
-- Make failed or skipped verification explicit in the summary.
-- Keep the output stable enough for issue comments or commit notes.
+- Add a concise pre-commit style summary that includes changed files, test results, unresolved risks, and suggested commit message. (Done: `/review`)
+- Reuse existing read-only git helpers; do not auto-commit. (Done)
+- Make failed or skipped verification explicit in the summary. (Done)
+- Keep the output stable enough for issue comments or commit notes. (Done)
 
 Definition of done:
 
 - A user can inspect what changed and what was verified without manually combining `/diff`, `/checkpoint`, and `/report`.
 - The summary makes it clear whether tests passed, failed, or were not run.
 - Tests cover clean, dirty, failed-test, and no-git scenarios.
+
+Implementation notes:
+
+- `deepseek-code repl` supports `/review`, with `/precommit` and `/pre-commit` aliases.
+- `/review` is read-only: it does not run tests, commit, rollback, or mutate files.
+- The first version shows the latest Ticket, changed files, last verification result or suggested command, checkpoint details, recent activity, risks, and a suggested commit message.
+- Tests cover clean git state, dirty git state, failed verification, non-git directories, and command aliases.
 
 ## Iteration 9: More Reliable Failure Recovery
 

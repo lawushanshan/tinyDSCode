@@ -75,6 +75,7 @@ deepseek-code repl
 | `/status` | 查看当前正在执行的 Ticket 详情 |
 | `/trace` | 查看最近一次执行轨迹 |
 | `/report` | 查看最近一次任务复盘报告 |
+| `/review` | 查看提交前只读审查摘要，包含变更、验证状态、checkpoint、风险和建议 commit message |
 | `/notes` | 查看持久化 session notes |
 | `/memory` | `/notes` 的别名，查看持久化 session notes |
 | `/context` | 查看当前项目上下文 |

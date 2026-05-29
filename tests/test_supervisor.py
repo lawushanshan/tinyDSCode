@@ -662,6 +662,23 @@ def test_run_verification_executes_suggested_command(tmp_path: Path) -> None:
     assert seen[0].arguments["cwd"] == str(tmp_path)
 
 
+def test_latest_verification_summary_uses_recent_shell_result(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.state_manager.save_audit_log([
+        {
+            "action": "tool_result",
+            "tool": "run_shell",
+            "structured": {
+                "ok": False,
+                "exit_code": 1,
+                "arguments": {"command": "pytest -q", "cwd": str(tmp_path)},
+            },
+        }
+    ])
+
+    assert supervisor.latest_verification_summary() == "failed: pytest -q, exit=1"
+
+
 def test_format_diff_for_untracked_changed_file(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     target = tmp_path / "new_file.py"
@@ -765,6 +782,89 @@ def test_format_checkpoint_outside_git_repo(tmp_path: Path) -> None:
     assert checkpoint == "当前目录不是可读取的 git 仓库，无法生成 checkpoint 状态"
 
 
+def test_format_precommit_review_for_clean_git_repo(tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    target = tmp_path / "tracked.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.py"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+
+    review = Supervisor(state_root=str(tmp_path)).format_precommit_review()
+
+    assert "Pre-Commit Review" in review
+    assert "Changes\n- none" in review
+    assert "- Not required" in review
+    assert "- none detected" in review
+
+
+def test_format_precommit_review_for_dirty_git_repo(tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    target = tmp_path / "tracked.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.py"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    target.write_text("VALUE = 2\n", encoding="utf-8")
+
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("update tracked value")
+    ticket.status = "done"
+    ticket.result = "\n".join([
+        "Result",
+        "[T-001] done",
+        "Changes",
+        "- tracked.py",
+        "Tests",
+        "- Suggested: pytest -q",
+    ])
+
+    review = supervisor.format_precommit_review()
+
+    assert "Ticket: T-001 (done) - update tracked value" in review
+    assert "Changes\n- tracked.py" in review
+    assert "Suggested: pytest -q" in review
+    assert "Suggested verification has not been run" in review
+    assert "- update tracked value" in review
+
+
+def test_format_precommit_review_includes_failed_verification(tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("fix failing tests")
+    ticket.status = "done"
+    supervisor.changed_files = ["src/app.py"]
+    supervisor.state_manager.save_audit_log([
+        {
+            "action": "tool_result",
+            "tool": "run_shell",
+            "structured": {
+                "ok": False,
+                "exit_code": 1,
+                "arguments": {"command": "pytest -q", "cwd": str(tmp_path)},
+            },
+        }
+    ])
+
+    review = supervisor.format_precommit_review()
+
+    assert "Last run: failed: pytest -q, exit=1" in review
+    assert "Recent Activity" in review
+    assert "run_shell [failed, exit=1]" in review
+
+
+def test_format_precommit_review_outside_git_repo(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.changed_files = ["README.md"]
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    review = supervisor.format_precommit_review()
+
+    assert "Pre-Commit Review" in review
+    assert "Changes\n- README.md" in review
+    assert "unavailable: not a readable git repository" in review
+    assert "Git checkpoint unavailable" in review
+
+
 def test_format_rollback_guidance_for_clean_git_repo(tmp_path: Path) -> None:
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
 
@@ -811,6 +911,9 @@ def test_normalize_repl_command_accepts_missing_colon() -> None:
     assert supervisor.normalize_repl_command("status") == ":status"
     assert supervisor.normalize_repl_command("trace") == ":trace"
     assert supervisor.normalize_repl_command("report") == ":report"
+    assert supervisor.normalize_repl_command("review") == ":review"
+    assert supervisor.normalize_repl_command("precommit") == ":review"
+    assert supervisor.normalize_repl_command("pre-commit") == ":review"
     assert supervisor.normalize_repl_command("notes") == ":notes"
     assert supervisor.normalize_repl_command("memory") == ":notes"
     assert supervisor.normalize_repl_command("checkpoint") == ":checkpoint"
@@ -824,6 +927,9 @@ def test_normalize_repl_command_accepts_slash_commands() -> None:
     assert supervisor.normalize_repl_command(" /STATUS ") == ":status"
     assert supervisor.normalize_repl_command("/diff") == ":diff"
     assert supervisor.normalize_repl_command("/report") == ":report"
+    assert supervisor.normalize_repl_command("/review") == ":review"
+    assert supervisor.normalize_repl_command("/precommit") == ":review"
+    assert supervisor.normalize_repl_command("/pre-commit") == ":review"
     assert supervisor.normalize_repl_command("/notes") == ":notes"
     assert supervisor.normalize_repl_command("/memory") == ":notes"
     assert supervisor.normalize_repl_command("/checkpoint") == ":checkpoint"

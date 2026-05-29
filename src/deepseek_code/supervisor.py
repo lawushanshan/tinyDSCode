@@ -272,6 +272,9 @@ class Supervisor:
             "status": ":status",
             "trace": ":trace",
             "report": ":report",
+            "review": ":review",
+            "precommit": ":review",
+            "pre-commit": ":review",
             "notes": ":notes",
             "memory": ":notes",
             "context": ":context",
@@ -760,6 +763,123 @@ class Supervisor:
 
         return "\n".join(lines)
 
+    def latest_verification_summary(self) -> str | None:
+        audit_log = self.state_manager.load_audit_log()
+        for entry in reversed(audit_log):
+            if entry.get("action") not in {"tool_result", "tool_error"}:
+                continue
+            if entry.get("tool") != "run_shell":
+                continue
+            structured = entry.get("structured")
+            if not isinstance(structured, dict):
+                continue
+            args = structured.get("arguments")
+            if not isinstance(args, dict) or args.get("cwd") != str(self.state_manager.project_root):
+                continue
+            command = str(args.get("command", "")).strip()
+            if not command:
+                continue
+            ok = bool(structured.get("ok"))
+            exit_code = structured.get("exit_code")
+            status = "passed" if ok else "failed"
+            exit_text = f", exit={exit_code}" if exit_code is not None else ""
+            return f"{status}: {command}{exit_text}"
+        return None
+
+    def _suggest_commit_message(self, ticket: Ticket | None, changed_files: list[str]) -> str:
+        if ticket and ticket.description.strip():
+            base = ticket.description.strip()
+        elif changed_files:
+            base = "update project files"
+        else:
+            base = "checkpoint clean working tree"
+        base = " ".join(base.split())
+        return _truncate(base, 72)
+
+    def format_precommit_review(self) -> str:
+        ticket = self.latest_ticket()
+        changed_files = self.changed_files_for_report(ticket) if ticket else list(self.changed_files)
+        command = None
+        original_changed_files = self.changed_files
+        self.changed_files = changed_files
+        try:
+            command = self.suggest_verification_command()
+        finally:
+            self.changed_files = original_changed_files
+
+        inside_result = self._run_git(["git", "rev-parse", "--is-inside-work-tree"])
+        status_result = self._run_git(["git", "status", "--short"])
+        is_git_repo = (
+            inside_result.returncode == 0
+            and (inside_result.stdout or "").strip().lower() == "true"
+            and status_result.returncode == 0
+        )
+        status_lines = [line for line in (status_result.stdout or "").splitlines() if line.strip()] if is_git_repo else []
+
+        lines = ["Pre-Commit Review"]
+        if ticket:
+            lines.append(f"Ticket: {ticket.ticket_id} ({ticket.status}) - {ticket.description}")
+        else:
+            lines.append("Ticket: none")
+
+        lines.append("")
+        lines.append("Changes")
+        if changed_files:
+            lines.extend(f"- {path}" for path in changed_files)
+        elif is_git_repo and status_lines:
+            lines.extend(f"- {line}" for line in status_lines[:20])
+            if len(status_lines) > 20:
+                lines.append(f"- ... {len(status_lines) - 20} more")
+        else:
+            lines.append("- none")
+
+        lines.append("")
+        lines.append("Verification")
+        latest_verification = self.latest_verification_summary()
+        if latest_verification:
+            lines.append(f"- Last run: {latest_verification}")
+        elif command:
+            lines.append(f"- Not run in this review. Suggested: {command}")
+        elif changed_files:
+            lines.append("- Not run. No automatic verification command is available.")
+        else:
+            lines.append("- Not required")
+
+        lines.append("")
+        lines.append("Checkpoint")
+        if not is_git_repo:
+            lines.append("- unavailable: not a readable git repository")
+        else:
+            checkpoint_lines = self.format_checkpoint().splitlines()
+            if checkpoint_lines and checkpoint_lines[0] == "Checkpoint":
+                checkpoint_lines = checkpoint_lines[1:]
+            lines.extend(checkpoint_lines or ["- unavailable"])
+
+        audit_summary = self.format_audit_summary()
+        if audit_summary:
+            lines.append("")
+            lines.append("Recent Activity")
+            lines.extend(f"- {item}" for item in audit_summary)
+
+        lines.append("")
+        lines.append("Risks")
+        if not is_git_repo:
+            lines.append("- Git checkpoint unavailable; inspect files manually before committing.")
+        if ticket and ticket.status in {"failed", "blocked"}:
+            lines.append(f"- Latest ticket is {ticket.status}; resolve or continue it before committing.")
+        if changed_files and not latest_verification and command:
+            lines.append("- Suggested verification has not been run in this session.")
+        if changed_files and not command and not latest_verification:
+            lines.append("- Verification is manual or unknown for these changes.")
+        if not changed_files and is_git_repo and not status_lines:
+            lines.append("- none detected")
+
+        lines.append("")
+        lines.append("Suggested Commit Message")
+        lines.append(f"- {self._suggest_commit_message(ticket, changed_files)}")
+
+        return "\n".join(lines)
+
     def record_session_note(self, category: str, text: str, source: str = "") -> None:
         note_text = text.strip()
         if not note_text:
@@ -1040,14 +1160,14 @@ class Supervisor:
     def start_repl(self, model: str = "deepseek-v4-flash") -> None:
         self.console.print("[green]输入 exit 或 quit 退出会话。[/green]")
         self.console.print("[green]输入 /tickets 查看当前 Ticket 列表。[/green]")
-        self.console.print("[green]可用命令: /help, /tickets, /ticket <id>, /status, /trace, /report, /notes, /memory, /context, /refresh, /diff, /verify, /checkpoint, /rollback, /revise <id> <描述>, /continue, /new <描述>, exit[/green]")
+        self.console.print("[green]可用命令: /help, /tickets, /ticket <id>, /status, /trace, /report, /review, /notes, /memory, /context, /refresh, /diff, /verify, /checkpoint, /rollback, /revise <id> <描述>, /continue, /new <描述>, exit[/green]")
         while True:
             user_input = self.normalize_repl_command(Prompt.ask("[bold cyan]DeepSeek>[/bold cyan]"))
             if user_input.lower() in {"exit", "quit"}:
                 break
             if user_input == ":help":
                 self.console.print(
-                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/ticket <id> - 查看指定 Ticket 详情\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/report - 查看最近一次任务复盘报告\n/notes - 查看持久化 session notes\n/memory - /notes 的别名，查看持久化 session notes\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/diff - 查看当前变更 diff\n/verify - 运行最近一次建议验证命令\n/checkpoint - 查看当前 git 分支、HEAD 和工作区变更概况\n/rollback - 查看安全回滚指引，不自动执行回滚\n/revise <id> <描述> - 修改 pending/blocked/failed Ticket\n/continue - 继续执行下一个未完成 Ticket\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
+                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/ticket <id> - 查看指定 Ticket 详情\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/report - 查看最近一次任务复盘报告\n/review - 查看提交前只读审查摘要\n/notes - 查看持久化 session notes\n/memory - /notes 的别名，查看持久化 session notes\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/diff - 查看当前变更 diff\n/verify - 运行最近一次建议验证命令\n/checkpoint - 查看当前 git 分支、HEAD 和工作区变更概况\n/rollback - 查看安全回滚指引，不自动执行回滚\n/revise <id> <描述> - 修改 pending/blocked/failed Ticket\n/continue - 继续执行下一个未完成 Ticket\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
                 )
                 continue
             if user_input == ":tickets":
@@ -1083,6 +1203,9 @@ class Supervisor:
                 continue
             if user_input == ":report":
                 self.console.print(self.format_report())
+                continue
+            if user_input == ":review":
+                self.console.print(self.format_precommit_review())
                 continue
             if user_input == ":notes":
                 self.console.print(self.format_notes())
