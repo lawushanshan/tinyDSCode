@@ -44,7 +44,7 @@ The next phase should stabilize the current single-worker product before adding 
 Priority work:
 
 - Clean user-facing text: README, CLAUDE guidance, architecture docs, CLI prompts, system prompts, and test fixtures where feasible.
-- Run real REPL dogfood tests with an API key: `run`, `repl`, shell approval allow/deny, `/verify`, `/review`, `/continue`, and editor context.
+- Run real REPL dogfood tests with an API key: `run`, `repl`, shell approval allow/deny, `/verify`, `/review`, `/continue`, and editor context. (Checklist started in `docs/manual_repl_dogfood.md`)
 - Tighten shell safety and audit UX based on manual testing feedback.
 - Improve failure recovery messages and reduce repeated failure paths in resumed Tickets.
 - Keep outputs stable and copy/paste friendly for issue notes and commit summaries.

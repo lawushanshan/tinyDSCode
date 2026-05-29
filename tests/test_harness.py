@@ -260,9 +260,9 @@ def test_assess_shell_risk_medium_for_install_long_running_and_redirection() -> 
     assert install_risk == "medium"
     assert "可能安装依赖或修改环境" in install_reasons
     assert server_risk == "medium"
-    assert "May start a long-running process or development server." in server_reasons
+    assert "可能启动长时间运行的进程或开发服务器" in server_reasons
     assert redirect_risk == "medium"
-    assert "May write to files through shell redirection." in redirect_reasons
+    assert "可能通过 shell 重定向写入文件" in redirect_reasons
 
 
 def test_assess_shell_risk_high_for_destructive_command() -> None:

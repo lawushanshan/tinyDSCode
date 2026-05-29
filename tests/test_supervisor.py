@@ -263,9 +263,9 @@ def test_format_report_shell_audit_distinguishes_permission_and_result(tmp_path:
     report = supervisor.format_report()
 
     assert "run_shell [called, risk=low]" in report
-    assert f"permission shell: approved, risk=low, cwd={tmp_path}" in report
+    assert f"permission shell: approved, risk=low, cwd={tmp_path}, command=pytest -q" in report
     assert "run_shell [ok, exit=0]" in report
-    assert f"permission shell: denied, risk=high, cwd={tmp_path}" in report
+    assert f"permission shell: denied, risk=high, cwd={tmp_path}, command=rm -rf build" in report
 
 
 def test_format_report_recovers_changed_files_from_persisted_result(tmp_path: Path) -> None:

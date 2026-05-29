@@ -697,7 +697,9 @@ class Supervisor:
                 risk_text = f", risk={risk}" if risk else ""
                 cwd = entry.get("cwd")
                 cwd_text = f", cwd={cwd}" if cwd else ""
-                summary.append(f"permission {operation}: {approval}{risk_text}{cwd_text}")
+                detail = str(entry.get("detail", "")).strip()
+                detail_text = f", command={_truncate(detail, 80)}" if operation == "shell" and detail else ""
+                summary.append(f"permission {operation}: {approval}{risk_text}{cwd_text}{detail_text}")
             elif action == "log":
                 summary.append(str(entry.get("message", "log")))
             else:

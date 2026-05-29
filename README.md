@@ -175,3 +175,7 @@ src/deepseek_code/
 set PYTEST_ADDOPTS=--basetemp=.pytest-tmp
 python -m pytest tests/ -q
 ```
+
+## 人工 REPL 验证
+
+v0.2 的真实交互验证清单在 [docs/manual_repl_dogfood.md](docs/manual_repl_dogfood.md)，覆盖只读检查、低风险 shell 允许、高风险 shell 拒绝、验证流和恢复流。

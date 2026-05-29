@@ -113,12 +113,12 @@ class Harness:
                 break
         for pattern in long_running_patterns:
             if re.search(pattern, normalized):
-                reasons.append("May start a long-running process or development server.")
+                reasons.append("可能启动长时间运行的进程或开发服务器")
                 break
         if re.search(r"\b(setx|export)\b", normalized):
             reasons.append("可能修改环境变量")
         if re.search(r"(^|[^<])>>?($|[^>])", command):
-            reasons.append("May write to files through shell redirection.")
+            reasons.append("可能通过 shell 重定向写入文件")
         if any(operator in command for operator in ("|", "&&", "||", ";")):
             reasons.append("包含管道或多段命令，实际执行范围更大")
 
@@ -140,7 +140,7 @@ class Harness:
             self.console.print(f"[bold]风险等级:[/bold] {risk}")
             self.console.print(f"[bold]原因:[/bold] {'；'.join(reasons)}")
             if cwd:
-                self.console.print(f"[bold]Working directory:[/bold] {cwd}")
+                self.console.print(f"[bold]工作目录:[/bold] {cwd}")
             self.console.print(f"[bold]命令:[/bold] {detail}")
         else:
             self.console.print(f"[yellow]需要人工确认以执行 {label}[/yellow]")
