@@ -268,6 +268,69 @@ def test_format_report_shell_audit_distinguishes_permission_and_result(tmp_path:
     assert f"permission shell: denied, risk=high, cwd={tmp_path}, command=rm -rf build" in report
 
 
+def test_format_report_keeps_denied_shell_audit_when_later_tools_run(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("denied shell")
+    ticket.status = "blocked"
+    ticket.updated_at = datetime.now(timezone.utc)
+    supervisor.state_manager.save_audit_log([
+        {
+            "action": "permission_request",
+            "operation": "shell",
+            "detail": "git clean -n",
+            "approval": False,
+            "outcome": "denied",
+            "risk": "high",
+            "cwd": str(tmp_path),
+        },
+        {"action": "tool_call", "tool": "list_dir", "arguments": {"path": "."}},
+        {"action": "tool_result", "tool": "list_dir", "structured": {"ok": True}},
+        {"action": "tool_call", "tool": "read_file", "arguments": {"path": ".gitignore"}},
+        {"action": "tool_error", "tool": "read_file", "error": "[ERROR] missing"},
+        {"action": "tool_result", "tool": "search_files", "structured": {"ok": True}},
+    ])
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert f"permission shell: denied, risk=high, cwd={tmp_path}, command=git clean -n" in report
+    assert "read_file [error]" in report
+    assert "search_files [ok]" in report
+
+
+def test_format_report_splits_current_audit_from_safety_highlights(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    old_ticket = supervisor.create_ticket("old denied")
+    old_ticket.status = "blocked"
+    current = supervisor.create_ticket("current edit")
+    current.status = "done"
+    supervisor.state_manager.save_audit_log([
+        {
+            "action": "permission_request",
+            "operation": "shell",
+            "detail": "git clean -n",
+            "approval": False,
+            "outcome": "denied",
+            "risk": "high",
+            "cwd": str(tmp_path),
+            "ticket_id": old_ticket.ticket_id,
+        },
+        {"action": "tool_call", "tool": "read_file", "ticket_id": current.ticket_id},
+        {"action": "tool_result", "tool": "read_file", "structured": {"ok": True}, "ticket_id": current.ticket_id},
+        {"action": "tool_call", "tool": "apply_patch", "ticket_id": current.ticket_id},
+        {"action": "tool_result", "tool": "apply_patch", "structured": {"ok": True}, "ticket_id": current.ticket_id},
+    ])
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "Audit\n- read_file [called]\n- read_file [ok]\n- apply_patch [called]\n- apply_patch [ok]" in report
+    assert "Safety Highlights" in report
+    assert "permission shell: denied, risk=high" in report
+    audit_section = report.split("Audit", 1)[1].split("Safety Highlights", 1)[0]
+    assert "git clean -n" not in audit_section
+
+
 def test_format_report_recovers_changed_files_from_persisted_result(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     ticket = supervisor.create_ticket("持久化报告")
@@ -309,6 +372,26 @@ def test_format_report_includes_outcome_from_result(tmp_path: Path) -> None:
     assert "Outcome" in report
     assert "- [T-001] 完成主要逻辑" in report
     assert "- 额外说明" in report
+
+
+def test_format_report_strips_nested_bullets_from_outcome(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("报告项目符号")
+    ticket.status = "done"
+    ticket.result = "\n".join([
+        "Result",
+        "- index.html",
+        "- - .harness_state",
+        "Changes",
+        "- none",
+    ])
+
+    report = supervisor.format_report()
+
+    assert "- index.html" in report
+    assert "- .harness_state" in report
+    assert "- - index.html" not in report
+    assert "- - .harness_state" not in report
 
 
 def test_format_report_includes_outcome_from_legacy_result(tmp_path: Path) -> None:
@@ -668,9 +751,10 @@ def test_run_verification_executes_suggested_command(tmp_path: Path) -> None:
     assert seen[0].name == "run_shell"
     assert seen[0].arguments["command"] == "pytest -q"
     assert seen[0].arguments["cwd"] == str(tmp_path)
+    assert seen[0].arguments["purpose"] == "verification"
 
 
-def test_latest_verification_summary_uses_recent_shell_result(tmp_path: Path) -> None:
+def test_latest_verification_summary_uses_marked_verification_shell_result(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     supervisor.state_manager.save_audit_log([
         {
@@ -679,12 +763,29 @@ def test_latest_verification_summary_uses_recent_shell_result(tmp_path: Path) ->
             "structured": {
                 "ok": False,
                 "exit_code": 1,
-                "arguments": {"command": "pytest -q", "cwd": str(tmp_path)},
+                "arguments": {"command": "pytest -q", "cwd": str(tmp_path), "purpose": "verification"},
             },
         }
     ])
 
     assert supervisor.latest_verification_summary() == "failed: pytest -q, exit=1"
+
+
+def test_latest_verification_summary_ignores_ordinary_shell_result(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.state_manager.save_audit_log([
+        {
+            "action": "tool_result",
+            "tool": "run_shell",
+            "structured": {
+                "ok": True,
+                "exit_code": 0,
+                "arguments": {"command": "git describe --tags --always", "cwd": str(tmp_path)},
+            },
+        }
+    ])
+
+    assert supervisor.latest_verification_summary() is None
 
 
 def test_format_diff_for_untracked_changed_file(tmp_path: Path) -> None:
@@ -848,7 +949,7 @@ def test_format_precommit_review_includes_failed_verification(tmp_path: Path) ->
             "structured": {
                 "ok": False,
                 "exit_code": 1,
-                "arguments": {"command": "pytest -q", "cwd": str(tmp_path)},
+                "arguments": {"command": "pytest -q", "cwd": str(tmp_path), "purpose": "verification"},
             },
         }
     ])
@@ -1678,6 +1779,7 @@ def test_should_skip_planning_for_simple_file_edit() -> None:
     supervisor = Supervisor()
 
     assert supervisor._should_skip_planning("修改 scratch_demo.py，把默认参数从 World 改成 Codex") is True
+    assert supervisor._should_skip_planning("修改 index.html，将内容改为我爱你中国") is True
     assert supervisor._should_skip_planning("重构整个项目架构并修改 scratch_demo.py") is False
 
 
@@ -1692,6 +1794,23 @@ def test_handle_prompt_skips_planning_for_simple_file_edit(tmp_path) -> None:
     supervisor.llm_service.chat.assert_not_called()
     assert len(supervisor.tickets) == 1
     assert supervisor.worker.execute_ticket.call_args[0][0].description == "修改 scratch_demo.py，把默认参数从 World 改成 Codex"
+
+
+def test_handle_prompt_marks_parent_failed_when_edit_child_fails(tmp_path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    supervisor.llm_service = MagicMock()
+    supervisor.llm_service.chat.return_value = LLMResponse(content='[{"description": "修改 a.py"}]')
+
+    def fail_ticket(ticket, model: str = "mock", on_step=None) -> str:
+        ticket.status = "failed"
+        return "修改未完成，补丁或写入操作失败；没有任何文件变更被成功记录。"
+
+    supervisor.worker.execute_ticket = MagicMock(side_effect=fail_ticket)
+
+    response = supervisor.handle_prompt("请规划并修改多个文件", model="mock")
+
+    assert "修改未完成" in response
+    assert supervisor.latest_ticket().status == "failed"
 
 
 def test_handle_prompt_with_subtasks(tmp_path) -> None:

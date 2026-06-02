@@ -329,6 +329,13 @@ class Supervisor:
         ticket.log.append("Ticket 完成")
         self._persist_tickets()
 
+    def block_ticket(self, ticket: Ticket, result: str, reason: str = "") -> None:
+        ticket.status = "blocked"
+        ticket.result = result
+        ticket.updated_at = datetime.now(timezone.utc)
+        ticket.log.append(reason.strip() or "Ticket 被阻塞")
+        self._persist_tickets()
+
     def suggest_verification_command(self) -> str | None:
         for raw_path in self.changed_files:
             path = Path(raw_path)
@@ -527,6 +534,7 @@ class Supervisor:
             arguments={
                 "command": command,
                 "cwd": str(self.state_manager.project_root),
+                "purpose": "verification",
             },
         )
         result = self.harness.execute_tool_call_structured(tc)
@@ -652,59 +660,85 @@ class Supervisor:
             if line in {"Plan", "Changes", "Tests", "Notes", "Checkpoint", "Trace", "Audit", "Next steps"}:
                 break
             if line.strip():
-                outcome.append(_truncate(line.strip(), 240))
+                cleaned = line.strip()
+                while cleaned.startswith("- "):
+                    cleaned = cleaned[2:].strip()
+                outcome.append(_truncate(cleaned, 240))
             if len(outcome) >= max_lines:
                 break
         return outcome
 
-    def format_audit_summary(self, max_entries: int = 5) -> list[str]:
+    def _format_audit_entry(self, entry: dict) -> str | None:
+        action = str(entry.get("action", "unknown"))
+        if action == "tool_result":
+            tool = entry.get("tool", "unknown")
+            structured = entry.get("structured")
+            ok = structured.get("ok") if isinstance(structured, dict) else True
+            status = "ok" if ok else "failed"
+            if tool == "run_shell":
+                exit_code = structured.get("exit_code") if isinstance(structured, dict) else None
+                exit_text = f", exit={exit_code}" if exit_code is not None else ""
+                return f"run_shell [{status}{exit_text}]"
+            return f"{tool} [{status}]"
+        if action == "tool_error":
+            tool = entry.get("tool", "unknown")
+            if tool == "run_shell":
+                return "run_shell [error]"
+            return f"{tool} [error]"
+        if action == "tool_call":
+            tool = entry.get("tool", "unknown")
+            if tool == "run_shell":
+                risk = entry.get("risk")
+                risk_text = f", risk={risk}" if risk else ""
+                return f"run_shell [called{risk_text}]"
+            return f"{tool} [called]"
+        if action == "permission_request":
+            operation = entry.get("operation", "unknown")
+            outcome = entry.get("outcome")
+            approval = outcome if outcome else entry.get("approval", "unknown")
+            risk = entry.get("risk")
+            risk_text = f", risk={risk}" if risk else ""
+            cwd = entry.get("cwd")
+            cwd_text = f", cwd={cwd}" if cwd else ""
+            detail = str(entry.get("detail", "")).strip()
+            detail_text = f", command={_truncate(detail, 80)}" if operation == "shell" and detail else ""
+            return f"permission {operation}: {approval}{risk_text}{cwd_text}{detail_text}"
+        if action == "log":
+            return str(entry.get("message", "log"))
+        return action
+
+    def _is_high_priority_audit(self, entry: dict) -> bool:
+        if entry.get("action") != "permission_request":
+            return False
+        return entry.get("outcome") == "denied" or entry.get("approval") is False or entry.get("risk") == "high"
+
+    def _format_audit_entries(self, entries: list[dict]) -> list[str]:
+        summary: list[str] = []
+        for entry in entries:
+            formatted = self._format_audit_entry(entry)
+            if formatted:
+                summary.append(formatted)
+        return summary
+
+    def format_audit_summary(self, max_entries: int = 5, ticket_id: str | None = None) -> list[str]:
         audit_log = self.state_manager.load_audit_log()
         if not audit_log:
             return []
-        summary: list[str] = []
-        for entry in audit_log[-max_entries:]:
-            action = str(entry.get("action", "unknown"))
-            if action == "tool_result":
-                tool = entry.get("tool", "unknown")
-                structured = entry.get("structured")
-                ok = structured.get("ok") if isinstance(structured, dict) else True
-                status = "ok" if ok else "failed"
-                if tool == "run_shell":
-                    exit_code = structured.get("exit_code") if isinstance(structured, dict) else None
-                    exit_text = f", exit={exit_code}" if exit_code is not None else ""
-                    summary.append(f"run_shell [{status}{exit_text}]")
-                else:
-                    summary.append(f"{tool} [{status}]")
-            elif action == "tool_error":
-                tool = entry.get("tool", "unknown")
-                if tool == "run_shell":
-                    summary.append("run_shell [error]")
-                else:
-                    summary.append(f"{tool} [error]")
-            elif action == "tool_call":
-                tool = entry.get("tool", "unknown")
-                if tool == "run_shell":
-                    risk = entry.get("risk")
-                    risk_text = f", risk={risk}" if risk else ""
-                    summary.append(f"run_shell [called{risk_text}]")
-                else:
-                    summary.append(f"{tool} [called]")
-            elif action == "permission_request":
-                operation = entry.get("operation", "unknown")
-                outcome = entry.get("outcome")
-                approval = outcome if outcome else entry.get("approval", "unknown")
-                risk = entry.get("risk")
-                risk_text = f", risk={risk}" if risk else ""
-                cwd = entry.get("cwd")
-                cwd_text = f", cwd={cwd}" if cwd else ""
-                detail = str(entry.get("detail", "")).strip()
-                detail_text = f", command={_truncate(detail, 80)}" if operation == "shell" and detail else ""
-                summary.append(f"permission {operation}: {approval}{risk_text}{cwd_text}{detail_text}")
-            elif action == "log":
-                summary.append(str(entry.get("message", "log")))
-            else:
-                summary.append(action)
-        return summary
+        if ticket_id:
+            scoped = [entry for entry in audit_log if entry.get("ticket_id") == ticket_id]
+            return self._format_audit_entries(scoped[-max_entries:])
+        recent_indexes = set(range(max(0, len(audit_log) - max_entries), len(audit_log)))
+        priority_indexes = [i for i, entry in enumerate(audit_log) if self._is_high_priority_audit(entry)]
+        selected = set(priority_indexes[-max_entries:]) | recent_indexes
+        return self._format_audit_entries([audit_log[index] for index in sorted(selected)])
+
+    def format_safety_highlights(self, current_ticket_id: str | None = None, max_entries: int = 5) -> list[str]:
+        audit_log = self.state_manager.load_audit_log()
+        highlights = [
+            entry for entry in audit_log
+            if self._is_high_priority_audit(entry) and entry.get("ticket_id") != current_ticket_id
+        ]
+        return self._format_audit_entries(highlights[-max_entries:])
 
     def format_report(self) -> str:
         ticket = self.latest_ticket()
@@ -767,11 +801,21 @@ class Supervisor:
             lines.append("Trace")
             lines.extend(f"- {item}" for item in trace)
 
-        audit_summary = self.format_audit_summary()
+        audit_summary = self.format_audit_summary(ticket_id=ticket.ticket_id)
+        if not audit_summary:
+            raw_audit = self.state_manager.load_audit_log()
+            if raw_audit and not any("ticket_id" in entry for entry in raw_audit):
+                audit_summary = self.format_audit_summary()
         if audit_summary:
             lines.append("")
             lines.append("Audit")
             lines.extend(f"- {item}" for item in audit_summary)
+
+        safety_highlights = self.format_safety_highlights(current_ticket_id=ticket.ticket_id)
+        if safety_highlights:
+            lines.append("")
+            lines.append("Safety Highlights")
+            lines.extend(f"- {item}" for item in safety_highlights)
 
         if ticket.status in {"failed", "blocked"}:
             lines.append("")
@@ -796,6 +840,8 @@ class Supervisor:
                 continue
             args = structured.get("arguments")
             if not isinstance(args, dict) or args.get("cwd") != str(self.state_manager.project_root):
+                continue
+            if args.get("purpose") != "verification":
                 continue
             command = str(args.get("command", "")).strip()
             if not command:
@@ -876,11 +922,22 @@ class Supervisor:
                 checkpoint_lines = checkpoint_lines[1:]
             lines.extend(checkpoint_lines or ["- unavailable"])
 
-        audit_summary = self.format_audit_summary()
+        ticket_id = ticket.ticket_id if ticket else None
+        audit_summary = self.format_audit_summary(ticket_id=ticket_id)
+        if not audit_summary:
+            raw_audit = self.state_manager.load_audit_log()
+            if raw_audit and not any("ticket_id" in entry for entry in raw_audit):
+                audit_summary = self.format_audit_summary()
         if audit_summary:
             lines.append("")
             lines.append("Recent Activity")
             lines.extend(f"- {item}" for item in audit_summary)
+
+        safety_highlights = self.format_safety_highlights(current_ticket_id=ticket_id)
+        if safety_highlights:
+            lines.append("")
+            lines.append("Safety Highlights")
+            lines.extend(f"- {item}" for item in safety_highlights)
 
         lines.append("")
         lines.append("Risks")
@@ -1133,12 +1190,22 @@ class Supervisor:
             ticket.updated_at = datetime.now(timezone.utc)
             self._persist_tickets()
             self._transition(SupervisorState.WAITING_WORKER)
+            self.harness.current_ticket_id = ticket.ticket_id
             response = self.worker.execute_ticket(ticket, model=model, on_step=self._worker_on_step)
+            self.harness.current_ticket_id = None
             result = f"[{ticket.ticket_id}] {response}"
             self._transition(SupervisorState.REVIEWING)
             final_result = self.format_structured_output([result], [ticket])
             self.memory.record_decision("final_result", _truncate(final_result, 240))
-            self.complete_ticket(ticket, final_result)
+            if ticket.status == "blocked":
+                self.block_ticket(ticket, final_result, "Ticket 被权限拒绝或安全边界阻塞")
+            elif ticket.status == "failed":
+                ticket.result = final_result
+                ticket.updated_at = datetime.now(timezone.utc)
+                ticket.log.append("Ticket 执行失败")
+                self._persist_tickets()
+            else:
+                self.complete_ticket(ticket, final_result)
             self.state_manager.save_audit_log(self.worker.harness.audit_log)
             self._transition(SupervisorState.COMPLETE)
             return final_result
@@ -1154,6 +1221,7 @@ class Supervisor:
             raise
         finally:
             self.current_constraints = TaskConstraints(disallowed_tools=set())
+            self.harness.current_ticket_id = None
             if self.state != SupervisorState.IDLE:
                 try:
                     self._transition(SupervisorState.IDLE)
@@ -1389,7 +1457,10 @@ class Supervisor:
     def _should_skip_planning(self, prompt: str) -> bool:
         normalized = prompt.lower()
         edit_markers = ("修改", "改成", "替换", "rename", "change", "update", "replace")
-        file_markers = (".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".json", ".toml", ".yaml", ".yml", ".txt")
+        file_markers = (
+            ".py", ".ts", ".tsx", ".js", ".jsx", ".html", ".htm", ".css",
+            ".md", ".json", ".toml", ".yaml", ".yml", ".txt",
+        )
         complex_markers = ("多个", "所有", "整个项目", "架构", "重构", "规划", "分析并", "生成测试", "运行测试")
         return (
             any(marker in normalized for marker in edit_markers)
@@ -1493,7 +1564,9 @@ class Supervisor:
                     self.memory.append_system(
                         f"之前任务的结果（供参考）：\n" + "\n".join(results[-3:])
                     )
+                self.harness.current_ticket_id = ticket.ticket_id
                 response = self.worker.execute_ticket(ticket, model=model, on_step=self._worker_on_step)
+                self.harness.current_ticket_id = None
                 results.append(f"[{ticket.ticket_id}] {response}")
 
                 if pending:
@@ -1549,7 +1622,16 @@ class Supervisor:
             self._transition(SupervisorState.REVIEWING)
             final_result = self.format_structured_output(results, executed_tickets)
             self.memory.record_decision("final_result", _truncate(final_result, 240))
-            self.complete_ticket(parent_ticket, final_result)
+            if any(ticket.status == "blocked" for ticket in executed_tickets):
+                self.block_ticket(parent_ticket, final_result, "子 Ticket 被权限拒绝或安全边界阻塞")
+            elif any(ticket.status == "failed" for ticket in executed_tickets):
+                parent_ticket.status = "failed"
+                parent_ticket.result = final_result
+                parent_ticket.updated_at = datetime.now(timezone.utc)
+                parent_ticket.log.append("子 Ticket 执行失败")
+                self._persist_tickets()
+            else:
+                self.complete_ticket(parent_ticket, final_result)
             self.state_manager.save_audit_log(self.worker.harness.audit_log)
 
             self._transition(SupervisorState.COMPLETE)
@@ -1562,6 +1644,7 @@ class Supervisor:
             raise
         finally:
             self.current_constraints = TaskConstraints(disallowed_tools=set())
+            self.harness.current_ticket_id = None
             if self.state != SupervisorState.IDLE:
                 try:
                     self._transition(SupervisorState.IDLE)

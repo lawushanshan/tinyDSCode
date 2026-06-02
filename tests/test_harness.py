@@ -265,6 +265,16 @@ def test_assess_shell_risk_medium_for_install_long_running_and_redirection() -> 
     assert "可能通过 shell 重定向写入文件" in redirect_reasons
 
 
+def test_assess_shell_risk_ignores_null_device_redirects() -> None:
+    harness = Harness()
+
+    risk, reasons = harness.assess_shell_risk('git describe --tags --always 2>nul || echo "no git tags"')
+
+    assert risk == "medium"
+    assert "可能通过 shell 重定向写入文件" not in reasons
+    assert "包含管道或多段命令，实际执行范围更大" in reasons
+
+
 def test_assess_shell_risk_high_for_destructive_command() -> None:
     harness = Harness()
 
@@ -314,6 +324,19 @@ def test_run_shell_tool_call_records_risk_metadata(tmp_path: Path) -> None:
     assert persisted[0]["tool"] == "run_shell"
     assert persisted[0]["risk"] == "medium"
     assert "可能访问网络或远程主机" in persisted[0]["risk_reasons"]
+
+
+def test_audit_entries_include_current_ticket_id(tmp_path: Path) -> None:
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry, interactive=False)
+    harness.current_ticket_id = "T-123"
+    tc = ToolCall(id="call_ticket", name="list_dir", arguments={"path": str(tmp_path)})
+
+    harness.execute_tool_call_structured(tc)
+
+    persisted = harness.state_manager.load_audit_log()
+    assert persisted
+    assert {entry.get("ticket_id") for entry in persisted} == {"T-123"}
 
 
 def test_execute_tool_call_read_file(tmp_path: Path) -> None:

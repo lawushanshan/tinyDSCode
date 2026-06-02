@@ -39,10 +39,17 @@ class Harness:
         self.console = Console()
         self.tool_registry = tool_registry
         self.interactive = interactive
+        self.current_ticket_id: str | None = None
         self.allowed_actions = {
             "file": True,
             "shell": not interactive,
         }
+
+    def _append_audit(self, entry: dict[str, Any]) -> None:
+        if self.current_ticket_id and "ticket_id" not in entry:
+            entry["ticket_id"] = self.current_ticket_id
+        self.audit_log.append(entry)
+        self.state_manager.save_audit_log(self.audit_log)
 
     def assess_shell_risk(self, command: str) -> tuple[str, list[str]]:
         normalized = command.lower()
@@ -117,7 +124,12 @@ class Harness:
                 break
         if re.search(r"\b(setx|export)\b", normalized):
             reasons.append("可能修改环境变量")
-        if re.search(r"(^|[^<])>>?($|[^>])", command):
+        command_without_null_redirects = re.sub(
+            r"(?i)(?:^|[\s&|])(?:[12])?>\s*(?:nul|\$null)(?=$|[\s&|])",
+            " ",
+            command,
+        )
+        if re.search(r"(^|[^<])>>?($|[^>])", command_without_null_redirects):
             reasons.append("可能通过 shell 重定向写入文件")
         if any(operator in command for operator in ("|", "&&", "||", ";")):
             reasons.append("包含管道或多段命令，实际执行范围更大")
@@ -158,8 +170,7 @@ class Harness:
             risk, reasons = self.assess_shell_risk(detail)
             entry["risk"] = risk
             entry["risk_reasons"] = reasons
-        self.audit_log.append(entry)
-        self.state_manager.save_audit_log(self.audit_log)
+        self._append_audit(entry)
         return result
 
     def execute_tool_call_structured(self, tool_call: ToolCall) -> ToolResult:
@@ -175,8 +186,7 @@ class Harness:
             risk, reasons = self.assess_shell_risk(command)
             call_entry["risk"] = risk
             call_entry["risk_reasons"] = reasons
-        self.audit_log.append(call_entry)
-        self.state_manager.save_audit_log(self.audit_log)
+        self._append_audit(call_entry)
         try:
             result = self.perform_action(action=tool_name, **args)
             result_text = str(result) if result is not None else "（无返回值）"
@@ -189,24 +199,22 @@ class Harness:
                 arguments=args,
                 error=result_text,
             )
-            self.audit_log.append({
+            self._append_audit({
                 "action": "tool_error",
                 "tool": tool_name,
                 "error": result_text,
                 "structured": structured.model_dump(),
             })
-            self.state_manager.save_audit_log(self.audit_log)
             return structured
 
         structured = self._build_tool_result(tool_name, args, result_text)
 
-        self.audit_log.append({
+        self._append_audit({
             "action": "tool_result",
             "tool": tool_name,
             "result": result_text,
             "structured": structured.model_dump(),
         })
-        self.state_manager.save_audit_log(self.audit_log)
         return structured
 
     def execute_tool_call(self, tool_call: ToolCall) -> str:
@@ -399,5 +407,4 @@ class Harness:
         raise ValueError(f"未知操作: {action}")
 
     def log(self, message: str) -> None:
-        self.audit_log.append({"action": "log", "message": message})
-        self.state_manager.save_audit_log(self.audit_log)
+        self._append_audit({"action": "log", "message": message})

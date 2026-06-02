@@ -86,6 +86,9 @@ class Worker:
         last_content: Optional[str] = None
         last_tool_signature: Optional[str] = None
         successful_tool_signatures: set[str] = set()
+        failed_mutating_tools = 0
+        successful_mutating_tools = 0
+        skipped_duplicate_calls = 0
 
         while iteration < max_iterations:
             iteration += 1
@@ -122,6 +125,12 @@ class Worker:
                 console.print(f"[magenta]💭 思考:[/magenta] {_truncate(response.content)}")
 
             if not response.tool_calls:
+                if failed_mutating_tools and successful_mutating_tools == 0:
+                    message = "修改未完成，补丁或写入操作失败；没有任何文件变更被成功记录。"
+                    console.print(f"[yellow]⚠ {message}[/yellow]")
+                    ticket.status = "failed"
+                    step.done_reason = "mutation_failed"
+                    return message
                 if response.content == last_content:
                     consecutive_no_progress += 1
                     if consecutive_no_progress >= MAX_CONSECUTIVE_NO_PROGRESS:
@@ -159,14 +168,20 @@ class Worker:
                 console.print(f"[yellow]⚡ 工具调用:[/yellow] {tc.name}({args_summary})")
                 single_signature = _tool_calls_signature([tc])
                 if single_signature in successful_tool_signatures:
+                    skipped_duplicate_calls += 1
                     message = (
                         f"重复工具调用已跳过：{tc.name}({args_summary})。"
-                        "该操作已经成功执行过。请基于已有工具结果判断任务是否完成；"
-                        "如果目标已满足，请立即输出最终结果，不要继续调用工具。"
+                        "该操作已经成功执行过。必须基于已有工具结果推进到下一步，"
+                        "例如读取已找到的文件、应用补丁或直接输出最终结果；"
+                        "不要再次请求同一个工具调用。"
                     )
                     console.print(f"[yellow]⚠ {message}[/yellow]")
                     self.memory.append_tool_result(message)
+                    self.memory.append_system(message)
                     step.injected_messages.append(message)
+                    if skipped_duplicate_calls >= 2:
+                        step.done_reason = "repeated_successful_tool_call"
+                        return "重复工具调用过多，任务未能继续推进。请基于已有工具结果改用下一步操作。"
                     continue
 
                 # 请求 Supervisor 审批
@@ -185,6 +200,7 @@ class Worker:
                             step.injected_messages.append(directive.inject_message)
                         break
 
+                skipped_duplicate_calls = 0
                 result = self.harness.execute_tool_call_structured(tc)
                 step.tool_results.append(result)
                 if result.ok:
@@ -200,8 +216,31 @@ class Worker:
                 else:
                     console.print(f"[green]✓ 工具结果:[/green] {_truncate(result.text, 150)}")
                 result_message = f"工具执行结果：{result.text}"
+                if result.error and "已拒绝" in result.error:
+                    command = str(tc.arguments.get("command", "")) if tc.name == "run_shell" else ""
+                    target = command or f"{tc.name}({args_summary})"
+                    user_summary = f"命令已被用户拒绝，未执行：{target}"
+                    denied_message = (
+                        f"{user_summary}。"
+                        "请停止当前执行意图，直接总结未执行的事实；不要尝试绕过拒绝、"
+                        "不要改用其他工具完成同一意图，也不要建议更危险的替代命令。"
+                    )
+                    self.memory.append_tool_result(denied_message)
+                    step.injected_messages.append(denied_message)
+                    step.done_reason = "permission_denied"
+                    ticket.status = "blocked"
+                    return user_summary
                 if result.ok and tc.name in MUTATING_TOOLS:
+                    successful_mutating_tools += 1
                     result_message += "\n文件变更已完成。请根据任务目标判断是否需要读取文件确认；如果目标已满足，请直接总结完成。"
+                elif not result.ok and tc.name in MUTATING_TOOLS:
+                    failed_mutating_tools += 1
+                    result_message += (
+                        "\n修改未完成。请基于已经读取到的文件原文重新生成合法 unified diff；"
+                        "不要声称文件已写入，不要改用 write_file 覆盖已有文件。"
+                    )
+                elif result.ok and tc.name == "run_shell":
+                    result_message += "\n命令已成功执行。请直接总结命令输出，不要重复调用同一个 shell 命令。"
                 self.memory.append_tool_result(result_message)
 
                 # 执行后汇报

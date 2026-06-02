@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from deepseek_code.harness import Harness
+from deepseek_code.harness import Harness, ToolResult
 from deepseek_code.llm_service import LLMResponse, ToolCall, LLMService
 from deepseek_code.memory import MemoryManager
 from deepseek_code.supervisor import Ticket
@@ -157,7 +157,7 @@ def test_identical_tool_calls_terminate(tmp_path) -> None:
     assert "重复" in result or "终止" in result
     # 应在第 4 次循环终止（连续 3 次相同后触发）
     assert worker.llm_service.chat.call_count <= 4
-    assert worker.last_steps[-1].done_reason == "repeated_tool_calls"
+    assert worker.last_steps[-1].done_reason in {"repeated_tool_calls", "repeated_successful_tool_call"}
 
 
 def test_repeated_successful_tool_call_is_skipped(tmp_path) -> None:
@@ -182,7 +182,30 @@ def test_repeated_successful_tool_call_is_skipped(tmp_path) -> None:
     assert wrapped.call_count == 1
     assert target.read_text(encoding="utf-8") == "x = 1\n"
     assert "重复工具调用已跳过" in worker.last_steps[1].injected_messages[0]
+    assert "不要再次请求同一个工具调用" in worker.memory.history[-2]["content"]
     assert worker.last_steps[-1].done_reason == "assistant_final"
+
+
+def test_repeated_successful_tool_call_stops_after_second_skip(tmp_path) -> None:
+    worker = _make_worker(tmp_path)
+    target = tmp_path / "demo.py"
+    tc = ToolCall(id="call_write", name="write_file", arguments={"path": str(target), "content": "x = 1\n"})
+
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.side_effect = [
+        LLMResponse(content="写入文件", tool_calls=[tc]),
+        LLMResponse(content="再次写入同一文件", tool_calls=[tc]),
+        LLMResponse(content="第三次写入同一文件", tool_calls=[tc]),
+        LLMResponse(content="已完成", tool_calls=None),
+    ]
+
+    ticket = Ticket(ticket_id="T-016", description="重复写文件", max_loop_iterations=5)
+    result = worker.execute_ticket(ticket)
+
+    assert "重复工具调用过多" in result
+    assert target.read_text(encoding="utf-8") == "x = 1\n"
+    assert worker.llm_service.chat.call_count == 3
+    assert worker.last_steps[-1].done_reason == "repeated_successful_tool_call"
 
 
 def test_file_change_allows_read_file_confirmation(tmp_path) -> None:
@@ -236,6 +259,51 @@ def test_mutating_tool_result_prompts_final_summary(tmp_path) -> None:
     assert "如果目标已满足，请直接总结完成" in worker.memory.history[-2]["content"]
 
 
+def test_shell_success_prompts_final_summary_without_repeat(tmp_path) -> None:
+    worker = _make_worker(tmp_path)
+    tc = ToolCall(id="call_shell", name="run_shell", arguments={"command": "python --version"})
+
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.side_effect = [
+        LLMResponse(content="查看版本", tool_calls=[tc]),
+        LLMResponse(content="Python 3.13.4", tool_calls=None),
+    ]
+
+    ticket = Ticket(ticket_id="T-014", description="运行 python --version", max_loop_iterations=3)
+    worker.execute_ticket(ticket)
+
+    assert "不要重复调用同一个 shell 命令" in worker.memory.history[-2]["content"]
+
+
+def test_failed_mutation_without_success_cannot_complete(tmp_path) -> None:
+    worker = _make_worker(tmp_path)
+    target = tmp_path / "demo.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+    patch_tc = ToolCall(
+        id="call_patch",
+        name="apply_patch",
+        arguments={"path": str(target), "patch_text": "@@ -1,2 +1,1 @@\n-x = 1\n+x = 2\n"},
+    )
+    failed = ToolResult(
+        tool="apply_patch",
+        ok=False,
+        text="[ERROR] ValueError: diff hunk 删除/上下文行数不匹配",
+        error="[ERROR] ValueError: diff hunk 删除/上下文行数不匹配",
+    )
+    worker.harness.execute_tool_call_structured = MagicMock(return_value=failed)
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.side_effect = [
+        LLMResponse(content="修改文件", tool_calls=[patch_tc]),
+        LLMResponse(content="已完成", tool_calls=None),
+    ]
+
+    ticket = Ticket(ticket_id="T-015", description="修改 demo.py", max_loop_iterations=3)
+    result = worker.execute_ticket(ticket)
+
+    assert "修改未完成" in result
+    assert ticket.status == "failed"
+
+
 def test_different_tool_calls_reset_counter(tmp_path) -> None:
     """不同的工具调用应重置重复计数器，不误终止"""
     worker = _make_worker(tmp_path)
@@ -285,6 +353,36 @@ def test_on_step_reject_tool_call(tmp_path) -> None:
     result = worker.execute_ticket(ticket, on_step=reject_first_tool)
     assert result == "已完成"
     assert ticket.status == "done"
+
+
+def test_permission_denied_tool_result_blocks_ticket_without_followup(tmp_path) -> None:
+    worker = _make_worker(tmp_path)
+    denied = ToolResult(
+        tool="run_shell",
+        ok=False,
+        text="[ERROR] PermissionError: 已拒绝 shell 执行权限",
+        error="[ERROR] PermissionError: 已拒绝 shell 执行权限",
+    )
+    worker.harness.execute_tool_call_structured = MagicMock(return_value=denied)
+    first = LLMResponse(
+        content="运行高风险命令",
+        tool_calls=[ToolCall(id="c1", name="run_shell", arguments={"command": "git clean -n"})],
+    )
+    second = LLMResponse(
+        content="不应继续读取文件",
+        tool_calls=[ToolCall(id="c2", name="list_dir", arguments={"path": str(tmp_path)})],
+    )
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.side_effect = [first, second]
+
+    ticket = Ticket(ticket_id="T-007", description="运行 git clean -n", max_loop_iterations=5)
+    result = worker.execute_ticket(ticket)
+
+    assert result == "命令已被用户拒绝，未执行：git clean -n"
+    assert "不要尝试绕过拒绝" not in result
+    assert ticket.status == "blocked"
+    assert worker.llm_service.chat.call_count == 1
+    worker.harness.execute_tool_call_structured.assert_called_once()
 
 
 def test_on_step_receives_ticket_for_tool_events(tmp_path) -> None:
