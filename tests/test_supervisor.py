@@ -184,6 +184,28 @@ def test_format_structured_output_sections(tmp_path: Path) -> None:
     assert "建议验证" not in output
 
 
+def test_format_structured_output_filters_process_result_text(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("add heading")
+    supervisor.changed_files = ["index.html"]
+    result = "\n".join([
+        f"[{ticket.ticket_id}] ## 进度检查",
+        "**原始任务**：添加标题",
+        "1. ✅ 读取了 `index.html` 文件内容",
+        "在 `index.html` 文件的 `<body>` 中，已成功添加三级标题：",
+        "```html",
+        "<h3>为中华之崛起而努力！</h3>",
+        "```",
+    ])
+
+    output = supervisor.format_structured_output([result], [ticket])
+    result_section = output.split("Changes", 1)[0]
+
+    assert "进度检查" not in result_section
+    assert "原始任务" not in result_section
+    assert "已成功添加三级标题" in result_section
+
+
 def test_format_report_without_tickets() -> None:
     supervisor = Supervisor()
 

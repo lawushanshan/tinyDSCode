@@ -173,3 +173,19 @@ def test_repo_map_detects_python_entry_points(tmp_path: Path) -> None:
     assert "Python" in repo_map.profile.languages
     assert "main.py" in repo_map.profile.entry_points
     assert "pkg/__main__.py" in repo_map.profile.entry_points
+
+
+def test_repo_map_summarizes_lightweight_html_and_batch_directory(tmp_path: Path) -> None:
+    (tmp_path / "index.html").write_text("<!DOCTYPE html>\n", encoding="utf-8")
+    (tmp_path / "minicpm5-1b-api.bat").write_text("echo start\n", encoding="utf-8")
+
+    repo_map = RepoMapBuilder(tmp_path).build()
+    prompt = repo_map.to_prompt()
+
+    assert "index.html" in repo_map.files
+    assert "minicpm5-1b-api.bat" in repo_map.files
+    assert "HTML/CSS" in repo_map.profile.languages
+    assert "Windows Batch" in repo_map.profile.languages
+    assert "index.html" in repo_map.profile.entry_points
+    assert "minicpm5-1b-api.bat" in repo_map.profile.entry_points
+    assert "文件概览" in prompt

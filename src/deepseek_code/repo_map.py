@@ -29,6 +29,30 @@ _KEY_FILE_NAMES = {
     "DEEPSEEK.md",
     "ARCHITECTURE.md",
 }
+_GENERAL_FILE_SUFFIXES = {
+    ".bat",
+    ".cmd",
+    ".css",
+    ".go",
+    ".html",
+    ".htm",
+    ".java",
+    ".js",
+    ".json",
+    ".kt",
+    ".kts",
+    ".md",
+    ".ps1",
+    ".py",
+    ".rs",
+    ".sh",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
 
 
 @dataclass
@@ -52,6 +76,7 @@ class ProjectProfile:
 class RepoMap:
     root: str
     key_files: list[str] = field(default_factory=list)
+    files: list[str] = field(default_factory=list)
     profile: ProjectProfile = field(default_factory=ProjectProfile)
     python_files: list[PythonFileSummary] = field(default_factory=list)
     truncated: bool = False
@@ -61,6 +86,9 @@ class RepoMap:
         if self.key_files:
             lines.append("关键文件:")
             lines.extend(f"- {path}" for path in self.key_files)
+        if self.files:
+            lines.append("文件概览:")
+            lines.extend(f"- {path}" for path in self.files)
         if (
             self.profile.languages
             or self.profile.package_managers
@@ -107,6 +135,7 @@ class RepoMapBuilder:
             return repo_map
 
         repo_map.key_files = self._find_key_files()
+        repo_map.files = self._find_general_files()
         repo_map.profile = self._build_project_profile()
         python_paths = self._find_python_files(limit=self.max_python_files + 1)
         repo_map.truncated = len(python_paths) > self.max_python_files
@@ -121,6 +150,34 @@ class RepoMapBuilder:
             if path.exists() and path.is_file():
                 result.append(self._relative(path))
         return result
+
+    def _find_general_files(self, limit: int = 30) -> list[str]:
+        result: list[str] = []
+
+        def visit(directory: Path) -> bool:
+            try:
+                children = sorted(directory.iterdir(), key=lambda p: p.name)
+            except OSError:
+                return False
+            for child in children:
+                if child.is_dir():
+                    if child.name in _EXCLUDED_DIRS:
+                        continue
+                    if visit(child):
+                        return True
+                elif child.is_file() and self._is_general_file(child):
+                    rel = self._relative(child)
+                    if rel not in result:
+                        result.append(rel)
+                    if len(result) >= limit:
+                        return True
+            return False
+
+        visit(self.root)
+        return result
+
+    def _is_general_file(self, path: Path) -> bool:
+        return path.name in _KEY_FILE_NAMES or path.suffix.lower() in _GENERAL_FILE_SUFFIXES
 
     def _build_project_profile(self) -> ProjectProfile:
         profile = ProjectProfile()
@@ -172,6 +229,16 @@ class RepoMapBuilder:
             profile.package_managers.append("dotnet")
             profile.test_commands.append("dotnet test")
             profile.entry_points.extend(self._detect_dotnet_entry_points())
+
+        html_entry_points = self._detect_static_web_entry_points()
+        if html_entry_points:
+            profile.languages.append("HTML/CSS")
+            profile.entry_points.extend(html_entry_points)
+
+        script_entry_points = self._detect_windows_script_entry_points()
+        if script_entry_points:
+            profile.languages.append("Windows Batch")
+            profile.entry_points.extend(script_entry_points)
 
         profile.languages = self._dedupe(profile.languages)
         profile.package_managers = self._dedupe(profile.package_managers)
@@ -278,6 +345,26 @@ class RepoMapBuilder:
         for path in sorted(self.root.glob("**/*.csproj"))[:5]:
             if not self._is_excluded(path):
                 result.append(self._relative(path))
+        return result[:8]
+
+    def _detect_static_web_entry_points(self) -> list[str]:
+        result: list[str] = []
+        for candidate in ("index.html", "index.htm"):
+            if self._exists(candidate):
+                result.append(candidate)
+        for path in sorted(self.root.glob("*.html"))[:5]:
+            if not self._is_excluded(path):
+                rel = self._relative(path)
+                if rel not in result:
+                    result.append(rel)
+        return result[:8]
+
+    def _detect_windows_script_entry_points(self) -> list[str]:
+        result: list[str] = []
+        for pattern in ("*.bat", "*.cmd", "*.ps1"):
+            for path in sorted(self.root.glob(pattern))[:5]:
+                if not self._is_excluded(path):
+                    result.append(self._relative(path))
         return result[:8]
 
     def _detect_gradle_test_command(self) -> str:

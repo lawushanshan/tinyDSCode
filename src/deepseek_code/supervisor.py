@@ -488,7 +488,10 @@ class Supervisor:
     def format_structured_output(self, results: list[str], executed_tickets: list[Ticket]) -> str:
         lines = ["Result"]
         if results:
-            lines.extend(results)
+            cleaned_results: list[str] = []
+            for result in results:
+                cleaned_results.extend(self._clean_outcome_lines(result, max_lines=3))
+            lines.extend(cleaned_results or results)
         else:
             lines.append("（无结果）")
 
@@ -660,14 +663,11 @@ class Supervisor:
                     files.append(path)
         return files
 
-    def outcome_for_report(self, ticket: Ticket, max_lines: int = 3) -> list[str]:
-        if not ticket.result:
+    def _clean_outcome_lines(self, text: str, max_lines: int = 3) -> list[str]:
+        lines = text.splitlines()
+        if not lines:
             return []
-        lines = ticket.result.splitlines()
-        try:
-            start = lines.index("Result") + 1
-        except ValueError:
-            return [_truncate(ticket.result, 240)]
+        start = lines.index("Result") + 1 if "Result" in lines else 0
         raw_outcome: list[str] = []
         for line in lines[start:]:
             if line in {"Plan", "Changes", "Tests", "Notes", "Checkpoint", "Trace", "Audit", "Next steps"}:
@@ -681,19 +681,26 @@ class Supervisor:
             "**观察**", "**分析**", "**决策**", "**观察：", "**分析：", "**决策：",
             "观察：", "分析：", "决策：",
             "---", "## ✅", "✅ **任务完成", "任务完成", "## 进度检查",
-            "### 原始任务回顾", "原始任务回顾", "### 当前进展", "当前进展",
+            "### 原始任务回顾", "原始任务回顾", "**原始任务**", "原始任务",
+            "### 当前进展", "当前进展", "**已完成步骤**", "已完成步骤", "**任务状态**", "任务状态",
             "好的，我确认一下当前进展", "**T-", "T-",
         )
         filtered = []
         skipped_process_line = False
         for line in raw_outcome:
             marker_target = re.sub(r"^\[[^\]]+\]\s*", "", line)
+            marker_target = re.sub(r"^\d+\.\s*(?:✅\s*)?", "", marker_target)
             if any(marker_target.startswith(marker) for marker in process_markers):
                 skipped_process_line = True
                 continue
             filtered.append(line)
         source = filtered if filtered or skipped_process_line else raw_outcome
         return [_truncate(line, 240) for line in source[:max_lines]]
+
+    def outcome_for_report(self, ticket: Ticket, max_lines: int = 3) -> list[str]:
+        if not ticket.result:
+            return []
+        return self._clean_outcome_lines(ticket.result, max_lines=max_lines)
 
     def _format_audit_entry(self, entry: dict) -> str | None:
         action = str(entry.get("action", "unknown"))
