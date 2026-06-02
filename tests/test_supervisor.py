@@ -331,6 +331,39 @@ def test_format_report_splits_current_audit_from_safety_highlights(tmp_path: Pat
     assert "git clean -n" not in audit_section
 
 
+def test_format_report_formats_legacy_tool_audit_entries(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("legacy audit")
+    ticket.status = "done"
+    supervisor.state_manager.save_audit_log([
+        {"tool": "read_file", "status": "called", "ticket_id": ticket.ticket_id},
+        {"tool": "apply_patch", "status": "ok", "ticket_id": ticket.ticket_id},
+    ])
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "read_file [called]" in report
+    assert "apply_patch [ok]" in report
+
+
+def test_format_report_formats_legacy_action_tool_audit_entries(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("legacy action audit")
+    ticket.status = "done"
+    supervisor.state_manager.save_audit_log([
+        {"action": "list_dir", "ticket_id": ticket.ticket_id},
+        {"action": "run_shell", "risk": "medium", "ticket_id": ticket.ticket_id},
+    ])
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "list_dir [recorded]" in report
+    assert "run_shell [recorded, risk=medium]" in report
+    assert "\n- list_dir\n" not in report
+
+
 def test_format_report_recovers_changed_files_from_persisted_result(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     ticket = supervisor.create_ticket("持久化报告")
@@ -354,6 +387,26 @@ def test_format_report_recovers_changed_files_from_persisted_result(tmp_path: Pa
     assert "Suggested: pytest -q" in report
 
 
+def test_format_report_recovers_changed_files_from_audit(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("shell changed file")
+    ticket.status = "done"
+    supervisor.state_manager.save_audit_log([
+        {
+            "action": "tool_result",
+            "tool": "run_shell",
+            "structured": {"ok": True, "changed_files": ["index.html"]},
+            "ticket_id": ticket.ticket_id,
+        }
+    ])
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "Changes\n- index.html" in report
+    assert "Suggested: manually inspect the changed files" in report
+
+
 def test_format_report_includes_outcome_from_result(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     ticket = supervisor.create_ticket("结果摘要")
@@ -372,6 +425,84 @@ def test_format_report_includes_outcome_from_result(tmp_path: Path) -> None:
     assert "Outcome" in report
     assert "- [T-001] 完成主要逻辑" in report
     assert "- 额外说明" in report
+
+
+def test_format_report_filters_process_markers_from_outcome(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("清理过程文本")
+    ticket.status = "done"
+    ticket.result = "\n".join([
+        "Result",
+        "[T-001] **观察**：文件内容已确认修改成功。",
+        "**分析**：原始任务目标已完全达成。",
+        "**决策**：任务完成，输出最终结果。",
+        "**观察：** 文件包含 BOM。",
+        "**分析：** apply_patch 上下文不匹配。",
+        "**决策：** 使用 PowerShell 写入。",
+        "---",
+        "✅ **任务完成！**",
+        "已将 index.html 文件中的内容修改为 **\"你好,世界\"**。",
+        "**变更摘要：**",
+        "文件：`index.html`",
+        "Changes",
+        "- index.html",
+    ])
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "Outcome" in report
+    assert "观察" not in report.split("Outcome", 1)[1].split("Changes", 1)[0]
+    assert "分析" not in report.split("Outcome", 1)[1].split("Changes", 1)[0]
+    assert "决策" not in report.split("Outcome", 1)[1].split("Changes", 1)[0]
+    assert "- 已将 index.html 文件中的内容修改为 **\"你好,世界\"**。" in report
+    assert "- **变更摘要：**" in report
+    assert "- 文件：`index.html`" in report
+
+
+def test_format_report_filters_progress_and_resume_headings_from_outcome(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("清理恢复报告")
+    ticket.status = "done"
+    ticket.result = "\n".join([
+        "Result",
+        "[T-019] ## 进度检查",
+        "### 原始任务回顾",
+        "**T-017**（从 T-015 恢复）：读取并分析脚本。",
+        "已创建 `minicpm5-1b-api.bat`。",
+        "验证结果：服务启动命令已执行。",
+        "Changes",
+        "- minicpm5-1b-api.bat",
+    ])
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+    outcome = report.split("Outcome", 1)[1].split("Changes", 1)[0]
+
+    assert "进度检查" not in outcome
+    assert "原始任务回顾" not in outcome
+    assert "- 已创建 `minicpm5-1b-api.bat`。" in report
+    assert "- 验证结果：服务启动命令已执行。" in report
+
+
+def test_format_report_omits_outcome_when_only_process_lines_remain(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("只有过程")
+    ticket.status = "done"
+    ticket.result = "\n".join([
+        "Result",
+        "[T-040] 好的，我确认一下当前进展：",
+        "**观察：** 文件包含 BOM。",
+        "**分析：** apply_patch 无法处理。",
+        "**决策：** 使用 shell 修改。",
+        "Changes",
+        "- none",
+    ])
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "Outcome" not in report
 
 
 def test_format_report_strips_nested_bullets_from_outcome(tmp_path: Path) -> None:

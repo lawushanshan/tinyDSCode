@@ -126,18 +126,20 @@ class Tools:
         pos = 0
         hunks_applied = 0
 
-        def line_body(line: str) -> str:
+        def line_body(line: str, source_index: int | None = None) -> str:
             if line.endswith("\n"):
                 line = line[:-1]
             if line.endswith("\r"):
                 line = line[:-1]
+            if source_index == 0 and line.startswith("\ufeff"):
+                line = line.removeprefix("\ufeff")
             return line
 
         def expect_original(expected: str, kind: str) -> str:
             nonlocal line_index
             if line_index >= len(original_lines):
                 raise ValueError(f"补丁{kind}超出文件末尾: {expected!r}")
-            actual = line_body(original_lines[line_index])
+            actual = line_body(original_lines[line_index], line_index)
             if actual != expected:
                 raise ValueError(
                     f"补丁{kind}不匹配: 第 {line_index + 1} 行期望 {expected!r}，实际 {actual!r}"
@@ -145,6 +147,48 @@ class Tools:
             original = original_lines[line_index]
             line_index += 1
             return original
+
+        def parse_hunk_lines(start: int) -> tuple[list[tuple[str, str]], int]:
+            items: list[tuple[str, str]] = []
+            cursor = start
+            while cursor < len(patch_lines) and not patch_lines[cursor].startswith("@@"):
+                diff_line = patch_lines[cursor]
+                if diff_line.startswith(" "):
+                    items.append((" ", diff_line[1:]))
+                elif diff_line.startswith("-"):
+                    items.append(("-", diff_line[1:]))
+                elif diff_line.startswith("+"):
+                    items.append(("+", diff_line[1:]))
+                elif diff_line.startswith("\\ No newline at end of file"):
+                    pass
+                else:
+                    raise ValueError(f"鏃犳硶瑙ｆ瀽 diff 琛? {diff_line}")
+                cursor += 1
+            return items, cursor
+
+        def expected_old_lines(items: list[tuple[str, str]]) -> list[str]:
+            return [text for marker, text in items if marker in {" ", "-"}]
+
+        def hunk_matches(start: int, expected: list[str]) -> bool:
+            if start < line_index or start + len(expected) > len(original_lines):
+                return False
+            for offset, expected_text in enumerate(expected):
+                actual = line_body(original_lines[start + offset], start + offset)
+                if actual != expected_text:
+                    return False
+            return True
+
+        def locate_hunk(header_start: int, expected: list[str], header: str) -> int:
+            if not expected:
+                if header_start < line_index or header_start > len(original_lines):
+                    raise ValueError(f"diff hunk start out of range: {header}")
+                return header_start
+            if hunk_matches(header_start, expected):
+                return header_start
+            for candidate in range(line_index, len(original_lines) - len(expected) + 1):
+                if candidate != header_start and hunk_matches(candidate, expected):
+                    return candidate
+            raise ValueError(f"patch context mismatch: {header}")
 
         while pos < len(patch_lines):
             line = patch_lines[pos]
@@ -155,38 +199,23 @@ class Tools:
                     raise ValueError(f"无法解析 diff 头: {header}")
                 old_start_raw = int(match.group(1))
                 old_start = 0 if old_start_raw == 0 else old_start_raw - 1
-                old_count = int(match.group(2) or "1")
-                new_count = int(match.group(4) or "1")
                 if old_start < line_index:
                     raise ValueError(f"diff hunk 顺序错误或重叠: {header}")
                 if old_start > len(original_lines):
                     raise ValueError(f"diff hunk 起始行超出文件长度: {header}")
                 pos += 1
-                patched_lines.extend(original_lines[line_index:old_start])
-                line_index = old_start
-                consumed_old = 0
-                produced_new = 0
-                while pos < len(patch_lines) and not patch_lines[pos].startswith("@@"):
-                    diff_line = patch_lines[pos]
-                    if diff_line.startswith(" "):
-                        patched_lines.append(expect_original(diff_line[1:], "上下文"))
-                        consumed_old += 1
-                        produced_new += 1
-                    elif diff_line.startswith("-"):
-                        expect_original(diff_line[1:], "删除行")
-                        consumed_old += 1
-                    elif diff_line.startswith("+"):
-                        patched_lines.append(diff_line[1:] + "\n")
-                        produced_new += 1
-                    elif diff_line.startswith("\\ No newline at end of file"):
-                        pass
-                    else:
-                        raise ValueError(f"无法解析 diff 行: {diff_line}")
-                    pos += 1
-                if consumed_old != old_count:
-                    raise ValueError(f"diff hunk 删除/上下文行数不匹配: {header}")
-                if produced_new != new_count:
-                    raise ValueError(f"diff hunk 新增/上下文行数不匹配: {header}")
+                hunk_items, pos = parse_hunk_lines(pos)
+                actual_start = locate_hunk(old_start, expected_old_lines(hunk_items), header)
+                patched_lines.extend(original_lines[line_index:actual_start])
+                line_index = actual_start
+                for marker, text in hunk_items:
+                    if marker == " ":
+                        patched_lines.append(original_lines[line_index])
+                        line_index += 1
+                    elif marker == "-":
+                        line_index += 1
+                    elif marker == "+":
+                        patched_lines.append(text + "\n")
                 hunks_applied += 1
             else:
                 pos += 1

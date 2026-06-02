@@ -326,6 +326,23 @@ def test_run_shell_tool_call_records_risk_metadata(tmp_path: Path) -> None:
     assert "可能访问网络或远程主机" in persisted[0]["risk_reasons"]
 
 
+def test_run_shell_infers_changed_project_file_from_write_command(tmp_path: Path) -> None:
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry, interactive=False)
+    target = tmp_path / "index.html"
+    command = (
+        "powershell -Command \"Set-Content -Path "
+        f"'{target}' -Value '<h1>ok</h1>' -Encoding UTF8\""
+    )
+    tc = ToolCall(id="call_shell_write", name="run_shell", arguments={"command": command})
+
+    result = harness.execute_tool_call_structured(tc)
+
+    assert result.ok is True
+    assert result.changed_files == ["index.html"]
+    assert target.exists()
+
+
 def test_audit_entries_include_current_ticket_id(tmp_path: Path) -> None:
     registry = create_default_registry()
     harness = Harness(state_root=str(tmp_path), tool_registry=registry, interactive=False)

@@ -2,6 +2,7 @@ from __future__ import annotations
 import difflib
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -630,6 +631,18 @@ class Supervisor:
     def changed_files_for_report(self, ticket: Ticket) -> list[str]:
         if self.changed_files:
             return list(self.changed_files)
+        audit_files: list[str] = []
+        for entry in self.state_manager.load_audit_log():
+            if entry.get("ticket_id") != ticket.ticket_id:
+                continue
+            structured = entry.get("structured")
+            if not isinstance(structured, dict):
+                continue
+            for path in structured.get("changed_files") or []:
+                if isinstance(path, str) and path and path not in audit_files:
+                    audit_files.append(path)
+        if audit_files:
+            return audit_files
         if not ticket.result:
             return []
         lines = ticket.result.splitlines()
@@ -655,7 +668,7 @@ class Supervisor:
             start = lines.index("Result") + 1
         except ValueError:
             return [_truncate(ticket.result, 240)]
-        outcome: list[str] = []
+        raw_outcome: list[str] = []
         for line in lines[start:]:
             if line in {"Plan", "Changes", "Tests", "Notes", "Checkpoint", "Trace", "Audit", "Next steps"}:
                 break
@@ -663,13 +676,37 @@ class Supervisor:
                 cleaned = line.strip()
                 while cleaned.startswith("- "):
                     cleaned = cleaned[2:].strip()
-                outcome.append(_truncate(cleaned, 240))
-            if len(outcome) >= max_lines:
-                break
-        return outcome
+                raw_outcome.append(cleaned)
+        process_markers = (
+            "**观察**", "**分析**", "**决策**", "**观察：", "**分析：", "**决策：",
+            "观察：", "分析：", "决策：",
+            "---", "## ✅", "✅ **任务完成", "任务完成", "## 进度检查",
+            "### 原始任务回顾", "原始任务回顾", "### 当前进展", "当前进展",
+            "好的，我确认一下当前进展", "**T-", "T-",
+        )
+        filtered = []
+        skipped_process_line = False
+        for line in raw_outcome:
+            marker_target = re.sub(r"^\[[^\]]+\]\s*", "", line)
+            if any(marker_target.startswith(marker) for marker in process_markers):
+                skipped_process_line = True
+                continue
+            filtered.append(line)
+        source = filtered if filtered or skipped_process_line else raw_outcome
+        return [_truncate(line, 240) for line in source[:max_lines]]
 
     def _format_audit_entry(self, entry: dict) -> str | None:
         action = str(entry.get("action", "unknown"))
+        if action == "unknown" and entry.get("tool"):
+            status = entry.get("status") or entry.get("outcome") or "recorded"
+            return f"{entry.get('tool')} [{status}]"
+        if self.tool_registry and self.tool_registry.get(action):
+            status = str(entry.get("status") or entry.get("outcome") or "recorded")
+            if action == "run_shell":
+                risk = entry.get("risk")
+                risk_text = f", risk={risk}" if risk else ""
+                return f"run_shell [{status}{risk_text}]"
+            return f"{action} [{status}]"
         if action == "tool_result":
             tool = entry.get("tool", "unknown")
             structured = entry.get("structured")

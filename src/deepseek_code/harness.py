@@ -248,6 +248,32 @@ class Harness:
         except ValueError:
             return raw_path
 
+    def _infer_shell_changed_files(self, command: str) -> list[str]:
+        write_markers = (
+            ">", "set-content", "out-file", "move-item", "copy-item",
+            "writealltext", "add-content", "new-item",
+        )
+        normalized = command.lower()
+        if not any(marker in normalized for marker in write_markers):
+            return []
+        root = self.state_manager.project_root.resolve()
+        candidates: list[str] = []
+        path_pattern = re.compile(
+            r"[A-Za-z]:\\[^\"'\r\n|;&<>]+|(?:\.{1,2}\\)?[^\"'\s|;&<>]+\.[A-Za-z0-9_]+"
+        )
+        for match in path_pattern.finditer(command):
+            raw = match.group(0).strip().rstrip(".,)")
+            try:
+                path = Path(raw)
+                resolved = path.resolve() if path.is_absolute() else (root / path).resolve()
+                resolved.relative_to(root)
+            except (OSError, ValueError):
+                continue
+            rel = resolved.relative_to(root).as_posix()
+            if rel not in candidates:
+                candidates.append(rel)
+        return candidates
+
     def _build_tool_result(self, tool_name: str, args: dict[str, Any], result_text: str) -> ToolResult:
         ok = not (
             result_text.startswith("[命令执行失败")
@@ -266,6 +292,9 @@ class Harness:
         stderr = ""
         error = None
         if tool_name == "run_shell":
+            command = str(args.get("command", ""))
+            if ok:
+                changed_files.extend(self._infer_shell_changed_files(command))
             failure_match = re.match(
                 r"\[命令执行失败 \(退出码 (?P<code>-?\d+)\)\].*?\nstdout:\n(?P<stdout>.*?)\nstderr:\n(?P<stderr>.*)",
                 result_text,

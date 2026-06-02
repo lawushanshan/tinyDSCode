@@ -160,6 +160,20 @@ def test_identical_tool_calls_terminate(tmp_path) -> None:
     assert worker.last_steps[-1].done_reason in {"repeated_tool_calls", "repeated_successful_tool_call"}
 
 
+def test_max_iterations_marks_ticket_failed(tmp_path) -> None:
+    worker = _make_worker(tmp_path)
+    tc = ToolCall(id="call_1", name="read_file", arguments={"path": str(tmp_path / "missing.txt")})
+    worker.llm_service = MagicMock()
+    worker.llm_service.chat.return_value = LLMResponse(content="继续尝试", tool_calls=[tc])
+
+    ticket = Ticket(ticket_id="T-017", description="达到最大循环", max_loop_iterations=1)
+    result = worker.execute_ticket(ticket)
+
+    assert "达到最大循环次数" in result or result == "继续尝试"
+    assert ticket.status == "failed"
+    assert worker.last_steps[-1].done_reason == "max_iterations"
+
+
 def test_repeated_successful_tool_call_is_skipped(tmp_path) -> None:
     """已经成功执行过的相同工具调用不应重复执行"""
     worker = _make_worker(tmp_path)

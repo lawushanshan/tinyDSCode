@@ -90,6 +90,52 @@ index 1111111..2222222 100644
     assert file_path.read_text(encoding="utf-8") == "line1\nline2 changed\n"
 
 
+def test_apply_patch_matches_utf8_bom_first_line_without_removing_bom(tmp_path: Path) -> None:
+    file_path = tmp_path / "index.html"
+    file_path.write_text("\ufeff<!DOCTYPE html>\n<html lang=\"zh-CN\">\n", encoding="utf-8")
+    patch = """--- a/index.html
++++ b/index.html
+@@ -1,2 +1,2 @@
+ <!DOCTYPE html>
+-<html lang="zh-CN">
++<html lang="zh-Hans">
+"""
+
+    Tools.apply_patch(str(file_path), patch)
+
+    assert file_path.read_text(encoding="utf-8") == "\ufeff<!DOCTYPE html>\n<html lang=\"zh-Hans\">\n"
+
+
+def test_apply_patch_locates_hunk_when_header_counts_are_inaccurate(tmp_path: Path) -> None:
+    file_path = tmp_path / "index.html"
+    file_path.write_text(
+        "<!DOCTYPE html>\n"
+        "<html lang=\"zh-CN\">\n"
+        "<head>\n"
+        "    <title>你好世界</title>\n"
+        "</head>\n"
+        "<body>\n"
+        "    <h1>你好,世界</h1>\n"
+        "    <h2>中华人民共和国崛起！</h2>\n"
+        "</body>\n"
+        "</html>\n",
+        encoding="utf-8",
+    )
+    patch = """--- a/index.html
++++ b/index.html
+@@ -1,99 +1,99 @@
+ <body>
+     <h1>你好,世界</h1>
+     <h2>中华人民共和国崛起！</h2>
++    <h3>为中华之崛起而努力！</h3>
+ </body>
+"""
+
+    Tools.apply_patch(str(file_path), patch)
+
+    assert "    <h3>为中华之崛起而努力！</h3>\n</body>" in file_path.read_text(encoding="utf-8")
+
+
 def test_apply_patch_rejects_mismatched_context_without_writing(tmp_path: Path) -> None:
     file_path = tmp_path / "example.txt"
     original = "line1\nline2\nline3\n"
@@ -107,7 +153,7 @@ def test_apply_patch_rejects_mismatched_context_without_writing(tmp_path: Path) 
         Tools.apply_patch(str(file_path), patch)
         assert False, "应该拒绝上下文不匹配的补丁"
     except ValueError as exc:
-        assert "不匹配" in str(exc)
+        assert "context mismatch" in str(exc)
 
     assert file_path.read_text(encoding="utf-8") == original
 

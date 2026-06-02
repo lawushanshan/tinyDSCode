@@ -250,4 +250,5 @@ class Worker:
         console.print(f"[yellow]⚠ 达到最大循环次数 {max_iterations}，Ticket 未完成[/yellow]")
         if self.last_steps:
             self.last_steps[-1].done_reason = "max_iterations"
+        ticket.status = "failed"
         return last_content or f"[警告] 达到最大循环次数 {max_iterations}，Ticket 未完成。"
