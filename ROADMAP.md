@@ -49,6 +49,29 @@ Priority work:
 - Improve failure recovery messages and reduce repeated failure paths in resumed Tickets.
 - Keep outputs stable and copy/paste friendly for issue notes and commit summaries.
 
+Dogfood follow-up backlog:
+
+1. Simple single-file edits should not be split into child Tickets.
+   - Cover prompts such as "在本地的 html 文件中，再加一个段落", "给 index.html 添加一个 h3", and "在文件中新增/追加/插入/替换内容".
+   - Keep file discovery, read, patch, and confirmation as internal Worker steps inside one Ticket.
+   - Avoid planning separate Tickets such as "打开文件", "查看文件内容", "保存文件", or "关闭文件".
+
+2. Child Tickets should inherit edit context within the same parent task.
+   - If one child Ticket already read or searched the target file, a later child Ticket under the same parent should not have its first `apply_patch` rejected only because `start_ticket()` cleared `context_files_seen`.
+   - Prefer fixing simple-edit planning first, but keep inherited context for genuinely multi-step edits.
+
+3. Parent task outcomes should prioritize the meaningful child result.
+   - When a parent task has multiple child Tickets, `/report` and final output should prefer the child Ticket that changed files or successfully ran a mutating tool.
+   - Avoid using "opened/read file" child results as the primary outcome when a later child performed the actual edit.
+
+4. Final `Result` text should filter file bodies and tool-result dumps.
+   - Remove noisy lines such as "文件已打开，内容如下", fenced full-file HTML/code blocks, and "工具执行结果：<!DOCTYPE html>...".
+   - Preserve concise edit summaries, for example: `[T-046] 已在 index.html 中添加段落：测试最终输出是否简洁`.
+
+5. Planner should avoid non-actionable file-operation subtasks.
+   - For CLI editing tasks, "open/save/close file" are not separate product actions.
+   - Planning prompts and plan parsing should discourage or collapse these into the concrete edit Ticket.
+
 Definition of done:
 
 - User-facing docs and common CLI flows are readable UTF-8.
