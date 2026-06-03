@@ -93,6 +93,7 @@ class Supervisor:
         self.changed_files: list[str] = []
         self.context_files_seen: set[str] = set()
         self.context_search_performed = False
+        self.context_scope_ticket_id: str | None = None
         self._sync_session_notes_to_memory()
         if load_state:
             self._load_state()
@@ -320,8 +321,11 @@ class Supervisor:
         ticket.log.append("Ticket 开始执行")
         self.current_ticket = ticket
         self.memory.clear_working()
-        self.context_files_seen.clear()
-        self.context_search_performed = False
+        scope_ticket_id = ticket.parent_ticket_id or ticket.ticket_id
+        if scope_ticket_id != self.context_scope_ticket_id:
+            self.context_files_seen.clear()
+            self.context_search_performed = False
+            self.context_scope_ticket_id = scope_ticket_id
 
     def complete_ticket(self, ticket: Ticket, result: str) -> None:
         ticket.status = "done"
@@ -488,10 +492,18 @@ class Supervisor:
     def format_structured_output(self, results: list[str], executed_tickets: list[Ticket]) -> str:
         lines = ["Result"]
         if results:
-            cleaned_results: list[str] = []
-            for result in results:
-                cleaned_results.extend(self._clean_outcome_lines(result, max_lines=3))
-            lines.extend(cleaned_results or results)
+            outcome_items: list[tuple[int, int, list[str]]] = []
+            for index, result in enumerate(results):
+                ticket = executed_tickets[index] if index < len(executed_tickets) else None
+                cleaned = self._clean_outcome_lines(result, max_lines=3)
+                if cleaned:
+                    outcome_items.append((self._result_priority(ticket, result), index, cleaned))
+            if outcome_items:
+                outcome_items.sort(key=lambda item: (-item[0], item[1]))
+                for _, _, cleaned in outcome_items:
+                    lines.extend(cleaned)
+            else:
+                lines.extend(results)
         else:
             lines.append("（无结果）")
 
@@ -501,6 +513,53 @@ class Supervisor:
 
         lines.append(self.format_task_summary().lstrip())
         return "\n".join(lines)
+
+    def _result_priority(self, ticket: Ticket | None, result: str) -> int:
+        score = 0
+        if ticket:
+            if self._ticket_has_recorded_file_change(ticket):
+                score += 100
+
+            ticket_log = "\n".join(ticket.log)
+            if (
+                ("工具调用: apply_patch" in ticket_log or "工具调用: write_file" in ticket_log)
+                and "工具结果 [成功]" in ticket_log
+            ):
+                score += 80
+
+        result_markers = (
+            "已应用补丁到",
+            "已写入",
+            "文件变更已完成",
+            "已修改",
+            "已新增",
+            "已添加",
+            "完成修改",
+            "完成新增",
+            "完成添加",
+            "updated",
+            "changed",
+            "added",
+        )
+        if any(marker in result for marker in result_markers):
+            score += 40
+
+        read_only_markers = ("读取", "打开文件", "查看文件", "文件内容", "read file")
+        if score == 0 and any(marker in result.lower() for marker in read_only_markers):
+            score -= 10
+        return score
+
+    def _ticket_has_recorded_file_change(self, ticket: Ticket) -> bool:
+        for entry in self.state_manager.load_audit_log():
+            if entry.get("ticket_id") != ticket.ticket_id:
+                continue
+            structured = entry.get("structured")
+            if not isinstance(structured, dict):
+                continue
+            changed_files = structured.get("changed_files") or []
+            if any(isinstance(path, str) and path for path in changed_files):
+                return True
+        return False
 
     def format_plan_summary(self, tasks: list[Ticket]) -> str:
         if len(tasks) <= 1:
@@ -521,9 +580,18 @@ class Supervisor:
             if step.done_reason:
                 parts.append(f"done={step.done_reason}")
             elif step.assistant_content:
-                parts.append(f"assistant={_truncate(step.assistant_content, 80)}")
+                assistant_summary = self._summarize_trace_text(step.assistant_content)
+                if assistant_summary:
+                    parts.append(f"assistant={assistant_summary}")
             summary.append("; ".join(parts))
         return summary
+
+    def _summarize_trace_text(self, text: str) -> str:
+        if self._looks_like_outcome_dump(text, ("<!DOCTYPE", "<html", "<head", "<body", "</html")):
+            return "summary omitted"
+        if re.search(r"</?[A-Za-z][^>]*>", text):
+            return "summary omitted"
+        return _truncate(text, 80)
 
     def run_verification(self) -> str:
         command = self.suggest_verification_command()
@@ -669,14 +737,19 @@ class Supervisor:
             return []
         start = lines.index("Result") + 1 if "Result" in lines else 0
         raw_outcome: list[str] = []
+        in_fenced_block = False
         for line in lines[start:]:
             if line in {"Plan", "Changes", "Tests", "Notes", "Checkpoint", "Trace", "Audit", "Next steps"}:
                 break
-            if line.strip():
-                cleaned = line.strip()
-                while cleaned.startswith("- "):
-                    cleaned = cleaned[2:].strip()
-                raw_outcome.append(cleaned)
+            cleaned = line.strip()
+            if cleaned.startswith("```"):
+                in_fenced_block = not in_fenced_block
+                continue
+            if in_fenced_block or not cleaned:
+                continue
+            while cleaned.startswith("- "):
+                cleaned = cleaned[2:].strip()
+            raw_outcome.append(cleaned)
         process_markers = (
             "**观察**", "**分析**", "**决策**", "**观察：**", "**分析：**", "**决策：**",
             "观察：", "分析：", "决策：",
@@ -684,6 +757,12 @@ class Supervisor:
             "### 原始任务回顾", "原始任务回顾", "**原始任务**", "原始任务",
             "### 当前进展", "当前进展", "**已完成步骤**", "已完成步骤",
             "**任务状态**", "任务状态", "好的，我确认一下当前进展", "**T-", "T-",
+            "文件已打开，内容如下", "文件内容如下", "工具执行结果：", "工具执行结果:",
+            "**变更摘要：**", "变更摘要：", "变更摘要", "文件：", "修改：", "新增：", "添加：",
+        )
+        content_dump_markers = (
+            "<!DOCTYPE", "<html", "<head", "<body", "</html", "{", "[", "import ", "from ",
+            "def ", "class ", "function ", "const ", "let ", "var ",
         )
         filtered = []
         skipped_process_line = False
@@ -693,9 +772,24 @@ class Supervisor:
             if any(marker_target.startswith(marker) for marker in process_markers):
                 skipped_process_line = True
                 continue
+            if self._looks_like_outcome_dump(marker_target, content_dump_markers):
+                skipped_process_line = True
+                continue
             filtered.append(line)
         source = filtered if filtered or skipped_process_line else raw_outcome
         return [_truncate(line, 240) for line in source[:max_lines]]
+
+    def _looks_like_outcome_dump(self, text: str, markers: tuple[str, ...]) -> bool:
+        stripped = text.strip()
+        if not stripped:
+            return False
+        if any(stripped.startswith(marker) for marker in markers):
+            return True
+        if stripped.startswith("工具执行结果") and any(marker in stripped for marker in markers):
+            return True
+        html_tags = re.findall(r"</?([A-Za-z][\w:-]*)[^>]*>", stripped)
+        distinct_tags = {tag.lower() for tag in html_tags}
+        return len(distinct_tags) >= 3
 
     def outcome_for_report(self, ticket: Ticket, max_lines: int = 3) -> list[str]:
         if not ticket.result:

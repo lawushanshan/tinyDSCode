@@ -167,6 +167,24 @@ def test_format_task_summary_skips_checkpoint_hint_for_single_changed_file() -> 
     assert "建议运行 /checkpoint" not in summary
 
 
+def test_format_trace_summary_omits_html_assistant_snippet() -> None:
+    supervisor = Supervisor()
+    from deepseek_code.worker import AgentStep
+
+    supervisor.worker.last_steps = [
+        AgentStep(
+            iteration=1,
+            ticket_id="T-001",
+            assistant_content="当前已有 `<h3>旧标题</h3>`，现在需要替换为新标题。",
+        )
+    ]
+
+    summary = supervisor.format_trace_summary()
+
+    assert summary == ["loop 1; assistant=summary omitted"]
+    assert "旧标题" not in summary[0]
+
+
 def test_format_structured_output_sections(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     ticket = supervisor.create_ticket("结构化输出")
@@ -204,6 +222,102 @@ def test_format_structured_output_filters_process_result_text(tmp_path: Path) ->
     assert "进度检查" not in result_section
     assert "原始任务" not in result_section
     assert "已成功添加三级标题" in result_section
+
+
+def test_format_structured_output_filters_tool_result_file_dump(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("add paragraph")
+    supervisor.changed_files = ["index.html"]
+    result = "\n".join([
+        f"[{ticket.ticket_id}] 工具执行结果：<!DOCTYPE html>",
+        "<html><head><title>Demo</title></head><body><p>old</p><p>new</p></body></html>",
+        "已在 index.html 中添加段落：new。",
+    ])
+
+    output = supervisor.format_structured_output([result], [ticket])
+    result_section = output.split("Changes", 1)[0]
+
+    assert "工具执行结果" not in result_section
+    assert "<!DOCTYPE" not in result_section
+    assert "<html>" not in result_section
+    assert "已在 index.html 中添加段落：new。" in result_section
+
+
+def test_format_structured_output_filters_fenced_file_body(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("update html")
+    supervisor.changed_files = ["index.html"]
+    result = "\n".join([
+        f"[{ticket.ticket_id}] 已修改 index.html，新增 h3 标题。",
+        "```html",
+        "<!DOCTYPE html>",
+        "<html><body><h3>标题</h3></body></html>",
+        "```",
+        "请运行 /diff 查看具体改动。",
+    ])
+
+    output = supervisor.format_structured_output([result], [ticket])
+    result_section = output.split("Changes", 1)[0]
+
+    assert "<!DOCTYPE" not in result_section
+    assert "<h3>标题</h3>" not in result_section
+    assert "已修改 index.html，新增 h3 标题。" in result_section
+    assert "请运行 /diff 查看具体改动。" in result_section
+
+
+def test_format_report_keeps_inline_html_edit_summary(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("add h3")
+    ticket.status = "done"
+    ticket.result = "\n".join([
+        "Result",
+        "[T-049] 任务已完成。已在 `index.html` 中添加了 `<h3>中华名族上下五千年，真的是不容易</h3>`，位于原有 `<h3>测试最终输出是否简洁</h3>` 之后。",
+        "Changes",
+        "- index.html",
+        "Tests",
+        "- Suggested: manually inspect the changed files",
+    ])
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "Outcome" in report
+    assert "已在 `index.html` 中添加了 `<h3>中华名族上下五千年，真的是不容易</h3>`" in report
+
+
+def test_format_structured_output_prioritizes_child_result_with_file_change(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    parent = supervisor.create_ticket("update app.py")
+    read_ticket = supervisor._create_child_ticket(parent, {"description": "read app.py"})
+    edit_ticket = supervisor._create_child_ticket(parent, {"description": "modify app.py"})
+    supervisor.changed_files = ["app.py"]
+    supervisor.state_manager.save_audit_log([
+        {
+            "action": "tool_result",
+            "tool": "read_file",
+            "ticket_id": read_ticket.ticket_id,
+            "structured": {"ok": True, "changed_files": []},
+        },
+        {
+            "action": "tool_result",
+            "tool": "apply_patch",
+            "ticket_id": edit_ticket.ticket_id,
+            "structured": {"ok": True, "changed_files": ["app.py"]},
+        },
+    ])
+
+    output = supervisor.format_structured_output(
+        [
+            f"[{read_ticket.ticket_id}] 已读取 app.py，文件内容正常。",
+            f"[{edit_ticket.ticket_id}] 已修改 app.py，将 VALUE 改为 2。",
+        ],
+        [read_ticket, edit_ticket],
+    )
+    result_section = output.split("Plan", 1)[0]
+
+    assert result_section.index(f"[{edit_ticket.ticket_id}]") < result_section.index(f"[{read_ticket.ticket_id}]")
+    assert "1. read app.py" in output
+    assert "2. modify app.py" in output
 
 
 def test_format_report_without_tickets() -> None:
@@ -478,8 +592,28 @@ def test_format_report_filters_process_markers_from_outcome(tmp_path: Path) -> N
     assert "分析" not in report.split("Outcome", 1)[1].split("Changes", 1)[0]
     assert "决策" not in report.split("Outcome", 1)[1].split("Changes", 1)[0]
     assert "- 已将 index.html 文件中的内容修改为 **\"你好,世界\"**。" in report
-    assert "- **变更摘要：**" in report
-    assert "- 文件：`index.html`" in report
+    assert "- **变更摘要：**" not in report
+    assert "- 文件：`index.html`" not in report
+
+
+def test_format_structured_output_filters_secondary_change_summary_lines(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("update heading")
+    supervisor.changed_files = ["index.html"]
+    result = "\n".join([
+        f"[{ticket.ticket_id}] 已成功修改 `index.html`，将 h3 内容改为 `测试最终输出是否简洁`。",
+        "**变更摘要：**",
+        "文件：`C:\\Users\\Administrator\\Desktop\\本地LLM\\cpm\\index.html`",
+        "修改：将 `<h3>旧标题</h3>` 改为 `<h3>测试最终输出是否简洁</h3>`",
+    ])
+
+    output = supervisor.format_structured_output([result], [ticket])
+    result_section = output.split("Changes", 1)[0]
+
+    assert "已成功修改 `index.html`" in result_section
+    assert "变更摘要" not in result_section
+    assert "C:\\Users\\Administrator" not in result_section
+    assert "旧标题" not in result_section
 
 
 def test_format_report_filters_progress_and_resume_headings_from_outcome(tmp_path: Path) -> None:
@@ -1624,15 +1758,51 @@ def test_worker_on_step_allows_apply_patch_after_search(tmp_path: Path) -> None:
     assert directive.approved is True
 
 
-def test_start_ticket_clears_edit_context(tmp_path: Path) -> None:
+def test_start_ticket_inherits_edit_context_for_child_tickets(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     target = tmp_path / "app.py"
     target.write_text("VALUE = 1\n", encoding="utf-8")
-    first = supervisor.create_ticket("读取 app.py")
-    second = supervisor.create_ticket("修改 app.py")
+    parent = supervisor.create_ticket("edit app.py")
+    first = supervisor._create_child_ticket(parent, {"description": "read app.py"})
+    second = supervisor._create_child_ticket(parent, {"description": "modify app.py"})
+    read_tc = ToolCall(id="call_read", name="read_file", arguments={"path": str(target)})
+    patch_tc = ToolCall(
+        id="call_patch",
+        name="apply_patch",
+        arguments={
+            "path": str(target),
+            "patch_text": "--- a/app.py\n+++ b/app.py\n@@ -1,1 +1,1 @@\n-VALUE = 1\n+VALUE = 2\n",
+        },
+    )
+    read_result = ToolResult(tool="read_file", ok=True, text="VALUE = 1\n")
+
+    supervisor.start_ticket(first)
+    supervisor._worker_on_step(
+        "after_tool_call",
+        ticket=first,
+        tool_call=read_tc,
+        result=read_result.text,
+        tool_result=read_result,
+    )
+    assert supervisor.context_files_seen
+
+    supervisor.start_ticket(second)
+    directive = supervisor._worker_on_step("before_tool_call", ticket=second, tool_call=patch_tc)
+
+    assert supervisor.context_files_seen
+    assert directive.approved is True
+
+
+def test_start_ticket_clears_edit_context_for_unrelated_ticket(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    target = tmp_path / "app.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    first = supervisor.create_ticket("read app.py")
+    second = supervisor.create_ticket("modify app.py")
     read_tc = ToolCall(id="call_read", name="read_file", arguments={"path": str(target)})
     read_result = ToolResult(tool="read_file", ok=True, text="VALUE = 1\n")
 
+    supervisor.start_ticket(first)
     supervisor._worker_on_step(
         "after_tool_call",
         ticket=first,

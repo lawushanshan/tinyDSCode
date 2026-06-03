@@ -59,14 +59,17 @@ Dogfood follow-up backlog:
 2. Child Tickets should inherit edit context within the same parent task.
    - If one child Ticket already read or searched the target file, a later child Ticket under the same parent should not have its first `apply_patch` rejected only because `start_ticket()` cleared `context_files_seen`.
    - Prefer fixing simple-edit planning first, but keep inherited context for genuinely multi-step edits.
+   - Status: covered in the current v0.2 polish pass; context evidence is scoped by parent Ticket and still resets for unrelated tasks.
 
 3. Parent task outcomes should prioritize the meaningful child result.
    - When a parent task has multiple child Tickets, `/report` and final output should prefer the child Ticket that changed files or successfully ran a mutating tool.
    - Avoid using "opened/read file" child results as the primary outcome when a later child performed the actual edit.
+   - Status: covered in the current v0.2 polish pass for final structured output.
 
 4. Final `Result` text should filter file bodies and tool-result dumps.
    - Remove noisy lines such as "文件已打开，内容如下", fenced full-file HTML/code blocks, and "工具执行结果：<!DOCTYPE html>...".
    - Preserve concise edit summaries, for example: `[T-046] 已在 index.html 中添加段落：测试最终输出是否简洁`.
+   - Status: covered in the current v0.2 polish pass for structured output filtering.
 
 5. Planner should avoid non-actionable file-operation subtasks.
    - For CLI editing tasks, "open/save/close file" are not separate product actions.
@@ -126,9 +129,9 @@ Planned work:
 
 Implementation notes:
 
-- Supervisor tracks per-Ticket context evidence from successful `read_file`, `search_files`, and `search_content` calls.
+- Supervisor tracks edit context evidence from successful `read_file`, `search_files`, and `search_content` calls.
 - `apply_patch` requires context evidence before it is approved, so the Worker is forced to inspect relevant code before editing.
-- Context evidence is cleared when each Ticket starts to avoid stale context leaking across subtasks.
+- Context evidence is scoped to the current Ticket group: child Tickets under the same parent inherit it, while unrelated Tickets reset it.
 
 ## Iteration 3: Better Interactive Control
 
