@@ -882,7 +882,22 @@ class Supervisor:
             formatted = self._format_audit_entry(entry)
             if formatted:
                 summary.append(formatted)
-        return summary
+        return self._compact_repeated_audit_lines(summary)
+
+    def _compact_repeated_audit_lines(self, lines: list[str]) -> list[str]:
+        compacted: list[str] = []
+        index = 0
+        while index < len(lines):
+            current = lines[index]
+            count = 1
+            while index + count < len(lines) and lines[index + count] == current:
+                count += 1
+            if count > 1:
+                compacted.append(f"{current} x{count}")
+            else:
+                compacted.append(current)
+            index += count
+        return compacted
 
     def format_audit_summary(self, max_entries: int = 5, ticket_id: str | None = None) -> list[str]:
         audit_log = self.state_manager.load_audit_log()

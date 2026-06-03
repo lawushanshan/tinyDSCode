@@ -82,4 +82,42 @@ Expected:
 - `/ticket T-001` shows `Resume Context`.
 - `/continue T-001` resumes with prior failure context rather than blindly restarting.
 
+## 6. v0.2 Edit Polish Regression
+
+Ask the agent:
+
+```text
+/new 给 index.html 添加一个 h3，内容是 测试最终输出是否简洁
+/report
+```
+
+Expected:
+
+- The task runs as one Ticket rather than separate "open/save/close file" Tickets.
+- `Result` and `/report` keep a concise edit summary.
+- Full HTML file bodies, fenced file dumps, raw `工具执行结果：<!DOCTYPE...` text, absolute path detail lines, and process-only checklist items do not appear in the final outcome.
+- `Changes` lists `index.html`.
+
+Manual pass:
+
+- 2026-06-03: passed with `deepseek-chat` in `deepseek-code repl`; `/report` kept the concise inline `<h3>` edit summary and did not include full HTML dumps.
+
+## 7. Non-Actionable Planning Regression
+
+Ask the agent:
+
+```text
+/new 请打开 index.html，查看文件内容，在 body 里添加一个段落，然后保存并关闭文件
+```
+
+Expected:
+
+- Planning does not create standalone Tickets for "打开文件", "查看文件内容", "保存文件", or "关闭文件".
+- Final `Result` keeps the actual edit outcome and filters process-only checklist rows such as "读取文件" and "保存并关闭".
+- `Changes` lists `index.html`.
+
+Manual pass:
+
+- 2026-06-03: partially passed before follow-up filtering; the task stayed in one Ticket and changed `index.html`, then code was updated to filter process-only checklist rows.
+
 Record any confusing prompt text, unexpected state, or missing audit detail as v0.2 follow-up work.

@@ -489,6 +489,26 @@ def test_format_report_splits_current_audit_from_safety_highlights(tmp_path: Pat
     assert "git clean -n" not in audit_section
 
 
+def test_format_report_compacts_repeated_audit_lines(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("repeat audit")
+    ticket.status = "done"
+    supervisor.state_manager.save_audit_log([
+        {"action": "tool_call", "tool": "read_file", "ticket_id": ticket.ticket_id},
+        {"action": "tool_call", "tool": "read_file", "ticket_id": ticket.ticket_id},
+        {"action": "tool_result", "tool": "apply_patch", "structured": {"ok": True}, "ticket_id": ticket.ticket_id},
+        {"action": "tool_result", "tool": "apply_patch", "structured": {"ok": True}, "ticket_id": ticket.ticket_id},
+        {"action": "tool_error", "tool": "read_file", "ticket_id": ticket.ticket_id},
+    ])
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "read_file [called] x2" in report
+    assert "apply_patch [ok] x2" in report
+    assert "read_file [error]" in report
+
+
 def test_format_report_formats_legacy_tool_audit_entries(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     ticket = supervisor.create_ticket("legacy audit")
