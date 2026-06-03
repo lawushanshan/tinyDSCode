@@ -186,6 +186,13 @@ class Harness:
             risk, reasons = self.assess_shell_risk(command)
             call_entry["risk"] = risk
             call_entry["risk_reasons"] = reasons
+            raw_cwd = str(args.get("cwd") or ".")
+            try:
+                call_entry["cwd"] = self._resolve_project_path(raw_cwd)
+            except Exception as exc:
+                call_entry["cwd"] = raw_cwd
+                call_entry["cwd_error"] = str(exc)
+            call_entry["timeout_seconds"] = self._normalize_timeout_seconds(args.get("timeout_seconds", 30))
         self._append_audit(call_entry)
         try:
             result = self.perform_action(action=tool_name, **args)

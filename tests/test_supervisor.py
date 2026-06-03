@@ -391,6 +391,8 @@ def test_format_report_shell_audit_distinguishes_permission_and_result(tmp_path:
             "arguments": {"command": "pytest -q"},
             "risk": "low",
             "risk_reasons": ["none"],
+            "cwd": str(tmp_path),
+            "timeout_seconds": 30,
         },
         {
             "action": "permission_request",
@@ -420,7 +422,7 @@ def test_format_report_shell_audit_distinguishes_permission_and_result(tmp_path:
 
     report = supervisor.format_report()
 
-    assert "run_shell [called, risk=low]" in report
+    assert f"run_shell [called, risk=low, cwd={tmp_path}, timeout=30s]" in report
     assert f"permission shell: approved, risk=low, cwd={tmp_path}, command=pytest -q" in report
     assert "run_shell [ok, exit=0]" in report
     assert f"permission shell: denied, risk=high, cwd={tmp_path}, command=rm -rf build" in report

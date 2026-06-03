@@ -854,7 +854,11 @@ class Supervisor:
             if tool == "run_shell":
                 risk = entry.get("risk")
                 risk_text = f", risk={risk}" if risk else ""
-                return f"run_shell [called{risk_text}]"
+                cwd = entry.get("cwd")
+                cwd_text = f", cwd={cwd}" if cwd else ""
+                timeout = entry.get("timeout_seconds")
+                timeout_text = f", timeout={timeout}s" if timeout is not None else ""
+                return f"run_shell [called{risk_text}{cwd_text}{timeout_text}]"
             return f"{tool} [called]"
         if action == "permission_request":
             operation = entry.get("operation", "unknown")

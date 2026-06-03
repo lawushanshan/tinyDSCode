@@ -326,6 +326,29 @@ def test_run_shell_tool_call_records_risk_metadata(tmp_path: Path) -> None:
     assert "可能访问网络或远程主机" in persisted[0]["risk_reasons"]
 
 
+def test_run_shell_tool_call_records_execution_metadata(tmp_path: Path) -> None:
+    registry = create_default_registry()
+    harness = Harness(state_root=str(tmp_path), tool_registry=registry, interactive=False)
+    (tmp_path / "pkg").mkdir()
+    tc = ToolCall(
+        id="call_shell_metadata",
+        name="run_shell",
+        arguments={
+            "command": "python -c \"print('ok')\"",
+            "cwd": "pkg",
+            "timeout_seconds": 9999,
+        },
+    )
+
+    result = harness.execute_tool_call_structured(tc)
+
+    persisted = harness.state_manager.load_audit_log()
+    assert result.ok is True
+    assert persisted[0]["tool"] == "run_shell"
+    assert persisted[0]["cwd"] == str(tmp_path / "pkg")
+    assert persisted[0]["timeout_seconds"] == 300
+
+
 def test_run_shell_infers_changed_project_file_from_write_command(tmp_path: Path) -> None:
     registry = create_default_registry()
     harness = Harness(state_root=str(tmp_path), tool_registry=registry, interactive=False)
