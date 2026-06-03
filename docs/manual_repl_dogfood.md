@@ -7,7 +7,7 @@ pip install -e .
 deepseek-code repl
 ```
 
-## 1. Read-only context smoke test
+## 1. Read-Only Context Smoke Test
 
 In REPL:
 
@@ -23,7 +23,7 @@ Expected:
 - `/tickets` works even when there are no Tickets.
 - `/review` is read-only and does not run tests or mutate files.
 
-## 2. Low-risk shell approval
+## 2. Low-Risk Shell Approval
 
 Ask the agent:
 
@@ -38,7 +38,7 @@ Expected:
 - The command succeeds or reports a normal command result.
 - `/report` shows an approved shell permission and a `run_shell` result.
 
-## 3. Denied risky shell command
+## 3. Denied Risky Shell Command
 
 Ask the agent:
 
@@ -54,7 +54,7 @@ Expected:
 - `/report` shows `permission shell: denied` with risk and command details.
 - `/review` includes the recent denied activity.
 
-## 4. Verification flow
+## 4. Verification Flow
 
 After a task that changes a Python file, run:
 
@@ -68,7 +68,7 @@ Expected:
 - `/verify` runs the suggested command only after shell approval in REPL.
 - `/review` shows the last verification result or clearly says verification was not run.
 
-## 5. Recovery flow
+## 5. Recovery Flow
 
 If a Ticket becomes `failed` or `blocked`, run:
 

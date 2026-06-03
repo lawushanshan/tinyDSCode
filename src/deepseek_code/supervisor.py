@@ -160,7 +160,7 @@ class Supervisor:
                         self.changed_files.append(path)
                 if getattr(tool_result, "ok", False) and tc:
                     self._record_context_evidence(tc)
-            is_error = "[ERROR]" in result or "命令执行失败" in result
+            is_error = "[ERROR]" in result or "[命令执行失败" in result
             status = "失败" if is_error else "成功"
             if tc and ticket:
                 ticket.log.append(f"工具结果 [{status}]: {result[:120]}")
@@ -177,8 +177,8 @@ class Supervisor:
                     f"【进度检查】请评估你当前的工作进展。\n"
                     f"原始任务: {desc}\n"
                     f"当前是第 {iteration} 次循环。\n"
-                    f"如果你的操作偏离了原始任务，请立即回到正题。\n"
-                    f"如果任务已完成，请直接输出最终结果，不要再调用工具。"
+                    "如果你的操作偏离了原始任务，请立即回到正题。\n"
+                    "如果任务已完成，请直接输出最终结果，不要再调用工具。"
                 )
             )
 
@@ -478,7 +478,7 @@ class Supervisor:
 
         notes = self.format_trace_summary()
         if len(self.changed_files) > 1:
-            notes.append("多文件变更，建议运行 /checkpoint 查看当前 git 状态")
+            notes.append("多文件变更，建议运行 /checkpoint 查看当前 git 状态。")
         if notes:
             lines.append("")
             lines.append("Notes")
@@ -608,7 +608,7 @@ class Supervisor:
         if status_lines:
             lines.append("3. 如只想撤销某个文件，手动执行: git restore <path>")
             lines.append("4. 如确认要撤销全部未提交变更，手动执行: git restore .")
-            lines.append("5. 如包含未跟踪文件，先确认后再手动删除或使用 git clean -n 预览。")
+            lines.append("5. 如包含未跟踪文件，先确认后再手动删除，或使用 git clean -n 预览。")
             lines.append("当前变更:")
             lines.extend(f"- {line}" for line in status_lines[:20])
             if len(status_lines) > 20:
@@ -678,12 +678,12 @@ class Supervisor:
                     cleaned = cleaned[2:].strip()
                 raw_outcome.append(cleaned)
         process_markers = (
-            "**观察**", "**分析**", "**决策**", "**观察：", "**分析：", "**决策：",
+            "**观察**", "**分析**", "**决策**", "**观察：**", "**分析：**", "**决策：**",
             "观察：", "分析：", "决策：",
-            "---", "## ✅", "✅ **任务完成", "任务完成", "## 进度检查",
+            "---", "## ✅", "✅**任务完成", "✅ **任务完成", "任务完成", "## 进度检查",
             "### 原始任务回顾", "原始任务回顾", "**原始任务**", "原始任务",
-            "### 当前进展", "当前进展", "**已完成步骤**", "已完成步骤", "**任务状态**", "任务状态",
-            "好的，我确认一下当前进展", "**T-", "T-",
+            "### 当前进展", "当前进展", "**已完成步骤**", "已完成步骤",
+            "**任务状态**", "任务状态", "好的，我确认一下当前进展", "**T-", "T-",
         )
         filtered = []
         skipped_process_line = False
@@ -867,7 +867,7 @@ class Supervisor:
             lines.append("- /trace 查看失败前执行轨迹")
             lines.append("- /diff 查看当前变更")
             lines.append(f"- /continue {ticket.ticket_id} 继续执行")
-            lines.append("- /checkpoint 查看 git 状态")
+            lines.append("- /checkpoint ?? git ??")
             lines.append("- /rollback 查看安全回滚指引")
 
         return "\n".join(lines)
@@ -1388,7 +1388,25 @@ class Supervisor:
                 break
             if user_input == ":help":
                 self.console.print(
-                    "/help - 显示帮助\n/tickets - 列出 Ticket\n/ticket <id> - 查看指定 Ticket 详情\n/status - 当前 Ticket 状态\n/trace - 最近一次执行轨迹\n/report - 查看最近一次任务复盘报告\n/review - 查看提交前只读审查摘要\n/notes - 查看持久化 session notes\n/memory - /notes 的别名，查看持久化 session notes\n/context - 当前项目上下文\n/refresh - 刷新项目上下文\n/diff - 查看当前变更 diff\n/verify - 运行最近一次建议验证命令\n/checkpoint - 查看当前 git 分支、HEAD 和工作区变更概况\n/rollback - 查看安全回滚指引，不自动执行回滚\n/revise <id> <描述> - 修改 pending/blocked/failed Ticket\n/continue - 继续执行下一个未完成 Ticket\n/new <描述> - 创建并执行新 Ticket\nexit - 退出"
+                    "/help - 显示帮助\n"
+                    "/tickets - 列出 Ticket\n"
+                    "/ticket <id> - 查看指定 Ticket 详情\n"
+                    "/status - 当前 Ticket 状态\n"
+                    "/trace - 最近一次执行轨迹\n"
+                    "/report - 查看最近一次任务复盘报告\n"
+                    "/review - 查看提交前只读审查摘要\n"
+                    "/notes - 查看持久化 session notes\n"
+                    "/memory - /notes 的别名\n"
+                    "/context - 当前项目上下文\n"
+                    "/refresh - 刷新项目上下文\n"
+                    "/diff - 查看当前变更 diff\n"
+                    "/verify - 运行最近一次建议的验证命令\n"
+                    "/checkpoint - 查看当前 git 分支、HEAD 和工作区变更\n"
+                    "/rollback - 查看安全回滚指引，不自动执行回滚\n"
+                    "/revise <id> <描述> - 修改 pending/blocked/failed Ticket\n"
+                    "/continue - 继续执行下一个未完成 Ticket\n"
+                    "/new <描述> - 创建并执行新 Ticket\n"
+                    "exit - 退出"
                 )
                 continue
             if user_input == ":tickets":
@@ -1472,11 +1490,12 @@ class Supervisor:
             {
                 "role": "system",
                 "content": (
-                    "你是一个任务规划助手。请将用户请求拆分为具体的子任务步骤。\n"
+                    "你是一个任务规划助手。请将用户请求拆分为具体、可执行的子任务。\n"
                     "每步应独立可执行。\n"
-                    '请以 JSON 数组格式返回，每个元素包含 "description" 字段（子任务描述）。\n'
-                    '如果任务无法拆分或过于简单，返回包含单个元素的数组。\n'
-                    '只输出 JSON 数组，不要输出其他内容。'
+                    "对于简单的单文件编辑，不要拆成打开文件、保存文件、关闭文件等子任务；返回单个任务即可。\n"
+                    "请以 JSON 数组格式返回，每个元素包含 description 字段。\n"
+                    "如果任务无法拆分或过于简单，返回包含单个元素的数组。\n"
+                    "只输出 JSON 数组，不要输出其他内容。"
                 ),
             },
             {"role": "user", "content": prompt},
@@ -1500,12 +1519,18 @@ class Supervisor:
 
     def _should_skip_planning(self, prompt: str) -> bool:
         normalized = prompt.lower()
-        edit_markers = ("修改", "改成", "替换", "rename", "change", "update", "replace")
+        edit_markers = (
+            "修改", "改成", "改为", "替换", "新增", "添加", "增加", "追加", "插入",
+            "rename", "change", "update", "replace", "add", "insert", "append",
+        )
         file_markers = (
             ".py", ".ts", ".tsx", ".js", ".jsx", ".html", ".htm", ".css",
             ".md", ".json", ".toml", ".yaml", ".yml", ".txt",
         )
-        complex_markers = ("多个", "所有", "整个项目", "架构", "重构", "规划", "分析并", "生成测试", "运行测试")
+        complex_markers = (
+            "多个", "所有", "整个项目", "架构", "重构", "规划", "分析并",
+            "生成测试", "运行测试", "multi-file", "architecture", "refactor",
+        )
         return (
             any(marker in normalized for marker in edit_markers)
             and any(marker in normalized for marker in file_markers)

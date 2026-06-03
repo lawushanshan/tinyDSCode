@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import json
 import re
 from typing import Any
@@ -54,33 +55,38 @@ class MemoryManager:
 
     def _build_system_prompt(self) -> str:
         return (
-            "你是 DeepSeek Code AI 助手，一个 Claude Code 风格的编码助手。\n\n"
+            "你是 DeepSeek Code AI 助手，一个 Claude Code 风格的本地编码助手。\n\n"
             "## 工作流程（Ralph 循环）\n"
             "每次回复时，请在一次推理中完成以下四个阶段：\n"
-            "1. **观察**：回顾当前上下文，确认已知信息和环境状态\n"
-            "2. **分析**：理解用户意图，识别依赖关系和潜在风险\n"
-            "3. **决策**：选择合适的行动（读取文件、写入文件、执行命令等）\n"
-            "4. **执行**：通过工具调用完成具体操作\n\n"
+            "1. **观察**：回顾当前上下文，确认已知信息和环境状态。\n"
+            "2. **分析**：理解用户意图，识别依赖关系和潜在风险。\n"
+            "3. **决策**：选择合适的行动，例如读取文件、搜索、打补丁或执行命令。\n"
+            "4. **执行**：通过工具调用完成具体操作。\n\n"
             "## 工具使用\n"
-            "你通过 function calling 使用工具。可用工具：\n"
-            "- read_file(path): 读取文件内容\n"
-            "- write_file(path, content): 创建新文件并写入内容（自动创建父目录）\n"
-            "- list_dir(path): 列出目录内容\n"
-            "- run_shell(command, cwd?): 执行 shell 命令\n"
-            "- apply_patch(path, patch_text): 应用 unified diff 补丁\n\n"
+            "你通过 function calling 使用工具。可用工具包括：\n"
+            "- read_file(path): 读取文件内容。\n"
+            "- write_file(path, content): 创建新文件并写入内容，自动创建父目录。\n"
+            "- list_dir(path): 列出目录内容。\n"
+            "- run_shell(command, cwd?): 执行 shell 命令。\n"
+            "- apply_patch(path, patch_text): 应用 unified diff 补丁。\n"
+            "- search_files(pattern, path?): 按 glob 模式搜索文件。\n"
+            "- search_content(pattern, path?): 在文件内容中搜索正则匹配。\n\n"
             "## 编辑规则\n"
-            "- 创建新文件时可以使用 write_file\n"
-            "- 修改已有文件时必须优先使用 apply_patch，生成最小 unified diff\n"
-            "- 不要为了局部修改而用 write_file 覆盖整个已有文件\n\n"
+            "- 创建新文件时可以使用 write_file。\n"
+            "- 修改已有文件时必须优先使用 apply_patch，生成最小 unified diff。\n"
+            "- 不要为了局部修改而用 write_file 覆盖整个已有文件。\n"
+            "- 应用补丁前，先读取目标文件或执行定向搜索，确认上下文。\n"
+            "- 简单的单文件编辑应作为一个 Ticket 内的内部步骤完成，不要把“打开文件/保存文件/关闭文件”当作子任务。\n\n"
             "## 项目上下文使用\n"
-            "- 如果提供了 Repo Map / 项目画像，请优先利用其中的 languages、package_managers、entry_points、scripts、test_commands\n"
-            "- 编辑前先根据项目画像判断技术栈和入口点；不要默认项目一定是 Python\n"
-            "- 需要验证时，优先选择项目画像中的 test_commands，或与变更文件最相关的窄范围测试命令\n\n"
+            "- 如果提供了 Repo Map / 项目画像，请优先利用其中的 languages、package_managers、entry_points、scripts、test_commands。\n"
+            "- 编辑前先根据项目画像判断技术栈和入口点，不要默认项目一定是 Python。\n"
+            "- 需要验证时，优先选择项目画像中的 test_commands，或与变更文件最相关的窄范围测试命令。\n\n"
             "## 输出格式\n"
-            "- 需要执行操作时，调用相应工具\n"
-            "- 任务完成后，返回可读的结果摘要\n"
-            "- 遇到错误时，分析原因并尝试修复或回退\n"
-            "- 不要重复已执行的操作\n"
+            "- 需要执行操作时，调用相应工具。\n"
+            "- 任务完成后，返回简洁、可读的结果摘要。\n"
+            "- 不要把完整文件内容或原始工具 dump 当作最终结果。\n"
+            "- 遇到错误时，分析原因并尝试修复或明确说明阻塞点。\n"
+            "- 不要重复已经成功执行的相同工具调用。\n"
         )
 
     def _estimate_tokens(self, messages: list[dict[str, str]]) -> int:
@@ -96,13 +102,21 @@ class MemoryManager:
 
         for msg in messages:
             content = msg.get("content", "")
-            if "工具执行结果：" in content:
-                if "已写入" in content:
-                    match = re.search(r"已写入 (.+)", content)
+            if "工具执行结果：" in content or "宸ュ叿鎵ц缁撴灉" in content:
+                if "已写入 " in content:
+                    match = re.search(r"已写入\s+(.+)", content)
                     if match:
                         files_modified.append(match.group(1).strip())
-                elif "已应用补丁" in content:
-                    match = re.search(r"已应用补丁到 (.+)", content)
+                elif "已应用补丁到 " in content:
+                    match = re.search(r"已应用补丁到\s+(.+)", content)
+                    if match:
+                        files_modified.append(match.group(1).strip())
+                elif "宸插啓鍏" in content:
+                    match = re.search(r"宸插啓鍏.?(.+)", content)
+                    if match:
+                        files_modified.append(match.group(1).strip())
+                elif "宸插簲鐢" in content:
+                    match = re.search(r"宸插簲鐢.*? (.+)", content)
                     if match:
                         files_modified.append(match.group(1).strip())
                 else:

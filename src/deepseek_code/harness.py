@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import re
 from pathlib import Path
 from typing import Any
@@ -7,9 +8,9 @@ from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.prompt import Confirm
 
-from .tools import ToolRegistry
 from .llm_service import ToolCall
 from .persistence import StateManager
+from .tools import ToolRegistry
 
 
 class ToolResult(BaseModel):
@@ -124,6 +125,7 @@ class Harness:
                 break
         if re.search(r"\b(setx|export)\b", normalized):
             reasons.append("可能修改环境变量")
+
         command_without_null_redirects = re.sub(
             r"(?i)(?:^|[\s&|])(?:[12])?>\s*(?:nul|\$null)(?=$|[\s&|])",
             " ",
@@ -143,12 +145,10 @@ class Harness:
     def request_permission(self, action: str, detail: str = "", cwd: str | None = None) -> bool:
         if self.allowed_actions.get(action, False):
             return True
-        label = action
-        if detail:
-            label = f"{action}: {detail}"
+        label = f"{action}: {detail}" if detail else action
         if action == "shell":
             risk, reasons = self.assess_shell_risk(detail)
-            self.console.print(f"[yellow]需要人工确认以执行 shell 命令[/yellow]")
+            self.console.print("[yellow]需要人工确认以执行 shell 命令[/yellow]")
             self.console.print(f"[bold]风险等级:[/bold] {risk}")
             self.console.print(f"[bold]原因:[/bold] {'；'.join(reasons)}")
             if cwd:
@@ -156,7 +156,7 @@ class Harness:
             self.console.print(f"[bold]命令:[/bold] {detail}")
         else:
             self.console.print(f"[yellow]需要人工确认以执行 {label}[/yellow]")
-        result = Confirm.ask(f"是否允许执行？")
+        result = Confirm.ask("是否允许执行？")
         entry = {
             "action": "permission_request",
             "operation": action,
@@ -250,8 +250,14 @@ class Harness:
 
     def _infer_shell_changed_files(self, command: str) -> list[str]:
         write_markers = (
-            ">", "set-content", "out-file", "move-item", "copy-item",
-            "writealltext", "add-content", "new-item",
+            ">",
+            "set-content",
+            "out-file",
+            "move-item",
+            "copy-item",
+            "writealltext",
+            "add-content",
+            "new-item",
         )
         normalized = command.lower()
         if not any(marker in normalized for marker in write_markers):
@@ -357,6 +363,7 @@ class Harness:
             if not self.request_permission("file", detail=f"读取 {path}"):
                 raise PermissionError("已拒绝文件读取权限")
             from .tools import Tools
+
             resolved_path = self._resolve_project_path(path)
             content = Tools.read_file(resolved_path)
             if not content:
@@ -369,6 +376,7 @@ class Harness:
             if not self.request_permission("file", detail=f"写入 {path}"):
                 raise PermissionError("已拒绝文件写入权限")
             from .tools import Tools
+
             resolved_path = self._resolve_project_path(path)
             if Path(resolved_path).exists():
                 raise FileExistsError(f"目标文件已存在: {path}。修改已有文件请使用 apply_patch")
@@ -381,6 +389,7 @@ class Harness:
             if not self.request_permission("file", detail=f"列出 {path}"):
                 raise PermissionError("已拒绝目录读取权限")
             from .tools import Tools
+
             resolved_path = self._resolve_project_path(path)
             entries = Tools.list_dir(resolved_path)
             if not entries:
@@ -394,6 +403,7 @@ class Harness:
             if not self.request_permission("shell", detail=command, cwd=resolved_cwd):
                 raise PermissionError("已拒绝 shell 执行权限")
             from .tools import Tools
+
             timeout = self._normalize_timeout_seconds(timeout_seconds)
             return Tools.run_shell(command=command, cwd=resolved_cwd, timeout_seconds=timeout)
 
@@ -403,6 +413,7 @@ class Harness:
             if not self.request_permission("file", detail=f"补丁 {path}"):
                 raise PermissionError("已拒绝文件写入权限")
             from .tools import Tools
+
             resolved_path = self._resolve_project_path(path)
             Tools.apply_patch(resolved_path, patch_text)
             return f"已应用补丁到 {path}"
@@ -413,6 +424,7 @@ class Harness:
             if not self.request_permission("file", detail=f"搜索文件 {pattern}"):
                 raise PermissionError("已拒绝文件搜索权限")
             from .tools import Tools
+
             resolved_path = self._resolve_project_path(path or ".")
             return Tools.search_files(pattern, resolved_path, exclude_patterns.split(",") if exclude_patterns else None)
 
@@ -422,6 +434,7 @@ class Harness:
             if not self.request_permission("file", detail=f"搜索内容 '{pattern}'"):
                 raise PermissionError("已拒绝内容搜索权限")
             from .tools import Tools
+
             resolved_path = self._resolve_project_path(path or ".")
             return Tools.search_content(pattern, resolved_path, include, exclude, context_lines)
 
@@ -431,6 +444,7 @@ class Harness:
             if not self.request_permission("file", detail=f"搜索 '{query}'"):
                 raise PermissionError("已拒绝联网搜索权限")
             from .web_search import web_search
+
             return web_search(query, count)
 
         raise ValueError(f"未知操作: {action}")

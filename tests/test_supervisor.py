@@ -1933,6 +1933,8 @@ def test_should_skip_planning_for_simple_file_edit() -> None:
 
     assert supervisor._should_skip_planning("修改 scratch_demo.py，把默认参数从 World 改成 Codex") is True
     assert supervisor._should_skip_planning("修改 index.html，将内容改为我爱你中国") is True
+    assert supervisor._should_skip_planning("在 index.html 中新增一个段落") is True
+    assert supervisor._should_skip_planning("给 index.html 添加一个 h3") is True
     assert supervisor._should_skip_planning("重构整个项目架构并修改 scratch_demo.py") is False
 
 
