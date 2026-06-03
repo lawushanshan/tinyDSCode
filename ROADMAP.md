@@ -74,6 +74,7 @@ Dogfood follow-up backlog:
 5. Planner should avoid non-actionable file-operation subtasks.
    - For CLI editing tasks, "open/save/close file" are not separate product actions.
    - Planning prompts and plan parsing should discourage or collapse these into the concrete edit Ticket.
+   - Status: covered in the current v0.2 polish pass; plan parsing now filters open/view/save/close file-only subtasks.
 
 Definition of done:
 

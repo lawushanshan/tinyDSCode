@@ -224,6 +224,28 @@ def test_format_structured_output_filters_process_result_text(tmp_path: Path) ->
     assert "已成功添加三级标题" in result_section
 
 
+def test_format_structured_output_filters_process_only_checklist_items(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("add paragraph")
+    supervisor.changed_files = ["index.html"]
+    result = "\n".join([
+        f"[{ticket.ticket_id}] 已完成所有操作：",
+        "1. ✅ **读取文件** — 已读取 `index.html` 内容",
+        "2. ✅ **添加段落** — 在 `<body>` 末尾添加了 `<p>这是一个新添加的段落。</p>`",
+        "3. ✅ **保存并关闭** — 已通过补丁方式保存修改",
+        "文件已更新完毕。",
+    ])
+
+    output = supervisor.format_structured_output([result], [ticket])
+    result_section = output.split("Changes", 1)[0]
+
+    assert "已完成所有操作" not in result_section
+    assert "读取文件" not in result_section
+    assert "保存并关闭" not in result_section
+    assert "添加段落" in result_section
+    assert "这是一个新添加的段落" in result_section
+
+
 def test_format_structured_output_filters_tool_result_file_dump(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     ticket = supervisor.create_ticket("add paragraph")
@@ -2073,6 +2095,32 @@ def test_parse_plan_embedded_json() -> None:
     text = '好的，以下是计划：\n```json\n[{"description": "步骤1"}, {"description": "步骤2"}]\n```'
     plan = supervisor._parse_plan(text)
     assert len(plan) == 2
+
+
+def test_parse_plan_filters_non_actionable_file_subtasks() -> None:
+    supervisor = Supervisor()
+    plan = supervisor._parse_plan(
+        """
+        [
+          {"description": "打开 index.html 文件"},
+          {"description": "查看文件内容"},
+          {"description": "在 index.html 中添加 h3 标题"},
+          {"description": "保存文件"},
+          {"description": "关闭文件"}
+        ]
+        """
+    )
+
+    assert plan == [{"description": "在 index.html 中添加 h3 标题"}]
+
+
+def test_parse_plan_returns_empty_when_only_non_actionable_file_subtasks() -> None:
+    supervisor = Supervisor()
+    plan = supervisor._parse_plan(
+        '[{"description": "打开 index.html 文件"}, {"description": "保存文件"}, {"description": "关闭文件"}]'
+    )
+
+    assert plan == []
 
 
 def test_plan_task_returns_subtasks() -> None:

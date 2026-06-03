@@ -759,6 +759,7 @@ class Supervisor:
             "**任务状态**", "任务状态", "好的，我确认一下当前进展", "**T-", "T-",
             "文件已打开，内容如下", "文件内容如下", "工具执行结果：", "工具执行结果:",
             "**变更摘要：**", "变更摘要：", "变更摘要", "文件：", "修改：", "新增：", "添加：",
+            "已完成所有操作", "所有操作已完成",
         )
         content_dump_markers = (
             "<!DOCTYPE", "<html", "<head", "<body", "</html", "{", "[", "import ", "from ",
@@ -772,12 +773,37 @@ class Supervisor:
             if any(marker_target.startswith(marker) for marker in process_markers):
                 skipped_process_line = True
                 continue
+            if self._is_process_only_outcome_line(marker_target):
+                skipped_process_line = True
+                continue
             if self._looks_like_outcome_dump(marker_target, content_dump_markers):
                 skipped_process_line = True
                 continue
             filtered.append(line)
         source = filtered if filtered or skipped_process_line else raw_outcome
         return [_truncate(line, 240) for line in source[:max_lines]]
+
+    def _is_process_only_outcome_line(self, text: str) -> bool:
+        stripped = text.strip()
+        if not stripped:
+            return False
+        stripped = re.sub(r"^\d+\.\s*(?:✅\s*)?", "", stripped).strip()
+        stripped = stripped.replace("**", "")
+        if "—" in stripped:
+            heading, _, detail = stripped.partition("—")
+        elif "-" in stripped:
+            heading, _, detail = stripped.partition("-")
+        else:
+            heading, detail = stripped, ""
+        heading = heading.strip()
+        detail = detail.strip()
+        process_headings = (
+            "读取文件", "查看文件", "查看文件内容", "打开文件", "保存文件", "关闭文件",
+            "保存并关闭", "确认文件", "验证文件", "读取", "保存",
+        )
+        if heading in process_headings:
+            return True
+        return bool(detail and heading.startswith(("读取", "查看", "打开", "保存", "关闭", "确认")))
 
     def _looks_like_outcome_dump(self, text: str, markers: tuple[str, ...]) -> bool:
         stripped = text.strip()
@@ -1607,9 +1633,44 @@ class Supervisor:
             plan = json.loads(cleaned[start:end + 1])
             if not isinstance(plan, list):
                 return []
-            return [item for item in plan if isinstance(item, dict) and "description" in item]
+            items = [item for item in plan if isinstance(item, dict) and "description" in item]
+            return self._normalize_plan_items(items)
         except (json.JSONDecodeError, TypeError):
             return []
+
+    def _normalize_plan_items(self, items: list[dict]) -> list[dict[str, str]]:
+        normalized: list[dict[str, str]] = []
+        for item in items:
+            description = str(item.get("description", "")).strip()
+            if not description or self._is_non_actionable_file_subtask(description):
+                continue
+            cleaned_item = dict(item)
+            cleaned_item["description"] = description
+            normalized.append(cleaned_item)
+        return normalized
+
+    def _is_non_actionable_file_subtask(self, description: str) -> bool:
+        normalized = description.strip().lower()
+        if not normalized:
+            return True
+        file_context_markers = (
+            "文件", "file", ".py", ".ts", ".tsx", ".js", ".jsx", ".html", ".htm",
+            ".css", ".md", ".json", ".toml", ".yaml", ".yml", ".txt",
+        )
+        if not any(marker in normalized for marker in file_context_markers):
+            return False
+        non_actionable_markers = (
+            "打开文件", "打开目标文件", "查看文件内容", "查看目标文件", "保存文件", "关闭文件",
+            "open file", "open target file", "view file content", "save file", "close file",
+        )
+        if any(marker in normalized for marker in non_actionable_markers):
+            return True
+        return bool(
+            re.fullmatch(
+                r"\s*(?:打开|查看|保存|关闭)\s+[\w./\\:-]+\s*(?:文件|内容)?\s*",
+                description,
+            )
+        )
 
     def _should_skip_planning(self, prompt: str) -> bool:
         normalized = prompt.lower()
