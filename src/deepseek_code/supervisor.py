@@ -869,6 +869,10 @@ class Supervisor:
             return f"permission {operation}: {approval}{risk_text}{cwd_text}{detail_text}"
         if action == "log":
             return str(entry.get("message", "log"))
+        if action == "run_shell":
+            risk = entry.get("risk")
+            risk_text = f", risk={risk}" if risk else ""
+            return f"run_shell [recorded{risk_text}]"
         return action
 
     def _is_high_priority_audit(self, entry: dict) -> bool:
@@ -1002,7 +1006,7 @@ class Supervisor:
             lines.append("- /trace 查看失败前执行轨迹")
             lines.append("- /diff 查看当前变更")
             lines.append(f"- /continue {ticket.ticket_id} 继续执行")
-            lines.append("- /checkpoint ?? git ??")
+            lines.append("- /checkpoint 查看当前 git 状态")
             lines.append("- /rollback 查看安全回滚指引")
 
         return "\n".join(lines)
@@ -1130,6 +1134,14 @@ class Supervisor:
             lines.append("- Verification is manual or unknown for these changes.")
         if not changed_files and is_git_repo and not status_lines:
             lines.append("- none detected")
+
+        if ticket and ticket.status in {"failed", "blocked"}:
+            lines.append("")
+            lines.append("Next steps")
+            lines.append("- /trace 查看失败前执行轨迹")
+            lines.append("- /diff 查看当前变更")
+            lines.append(f"- /continue {ticket.ticket_id} 继续执行")
+            lines.append("- /rollback 查看安全回滚指引")
 
         lines.append("")
         lines.append("Suggested Commit Message")

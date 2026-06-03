@@ -456,6 +456,45 @@ def test_format_report_keeps_denied_shell_audit_when_later_tools_run(tmp_path: P
     assert "search_files [ok]" in report
 
 
+def test_format_report_shows_denied_shell_call_and_error_states(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("denied shell")
+    ticket.status = "blocked"
+    ticket.updated_at = datetime.now(timezone.utc)
+    supervisor.state_manager.save_audit_log([
+        {
+            "action": "tool_call",
+            "tool": "run_shell",
+            "arguments": {"command": "git clean -n"},
+            "risk": "high",
+            "ticket_id": ticket.ticket_id,
+        },
+        {
+            "action": "permission_request",
+            "operation": "shell",
+            "detail": "git clean -n",
+            "approval": False,
+            "outcome": "denied",
+            "risk": "high",
+            "cwd": str(tmp_path),
+            "ticket_id": ticket.ticket_id,
+        },
+        {
+            "action": "tool_error",
+            "tool": "run_shell",
+            "error": "[ERROR] PermissionError: 已拒绝 shell 执行权限",
+            "ticket_id": ticket.ticket_id,
+        },
+    ])
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    report = supervisor.format_report()
+
+    assert "run_shell [called, risk=high]" in report
+    assert f"permission shell: denied, risk=high, cwd={tmp_path}, command=git clean -n" in report
+    assert "run_shell [error]" in report
+
+
 def test_format_report_splits_current_audit_from_safety_highlights(tmp_path: Path) -> None:
     supervisor = Supervisor(state_root=str(tmp_path))
     old_ticket = supervisor.create_ticket("old denied")
@@ -828,6 +867,7 @@ def test_format_report_for_failed_ticket_suggests_next_steps(tmp_path: Path) -> 
     assert "/diff" in report
     assert "/continue T-001" in report
     assert "/checkpoint" in report
+    assert "??" not in report
     assert "/rollback" in report
 
 
@@ -1301,6 +1341,21 @@ def test_format_precommit_review_outside_git_repo(tmp_path: Path) -> None:
     assert "Changes\n- README.md" in review
     assert "unavailable: not a readable git repository" in review
     assert "Git checkpoint unavailable" in review
+
+
+def test_format_precommit_review_for_blocked_ticket_includes_next_steps(tmp_path: Path) -> None:
+    supervisor = Supervisor(state_root=str(tmp_path))
+    ticket = supervisor.create_ticket("denied shell")
+    ticket.status = "blocked"
+    supervisor._run_git = MagicMock(return_value=subprocess.CompletedProcess(["git"], 128, "", "fatal"))
+
+    review = supervisor.format_precommit_review()
+
+    assert "Latest ticket is blocked" in review
+    assert "Next steps" in review
+    assert "/trace" in review
+    assert f"/continue {ticket.ticket_id}" in review
+    assert "/rollback" in review
 
 
 def test_format_rollback_guidance_for_clean_git_repo(tmp_path: Path) -> None:

@@ -52,7 +52,7 @@ Expected:
 - Deny it.
 - The Ticket should not leave the state ambiguous.
 - `/report` shows `permission shell: denied` with risk and command details.
-- `/review` includes the recent denied activity.
+- `/review` includes the recent denied activity and a `Next steps` section with `/continue <id>`, `/trace`, `/diff`, and `/rollback` when the Ticket is blocked.
 
 ## 4. Verification Flow
 
@@ -81,6 +81,7 @@ Expected:
 
 - `/ticket T-001` shows `Resume Context`.
 - `/continue T-001` resumes with prior failure context rather than blindly restarting.
+- `/review` on a blocked or failed Ticket includes concrete recovery commands.
 
 ## 6. v0.2 Edit Polish Regression
 
